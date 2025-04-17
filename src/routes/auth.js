@@ -8,7 +8,14 @@ const mongoose = require('mongoose');
 const uri = process.env.HEII_MONGO_URI;
 
 
+router.post('/registerrestaurant', async (req, res) => {
+try{
+  
+}catch (err) {
 
+}
+
+})
 
 
 // Ruta para registrar un nuevo usuario---------------------------------------------------------
@@ -59,7 +66,7 @@ router.post('/registeruser', async (req, res) => {
 
     res.status(201).json({ message: 'Registro exitoso', user })
 
-    clientConnection.close()
+    
   } catch (err) {
     console.error('Error al registrar usuario:', err)
     res.status(500).json({ error: 'Error en el servidor' })
@@ -89,7 +96,7 @@ router.post('/loginuser', async (req, res) => {
     }));
     const client = await ClientModel.findOne({ email });
     if (client && await bcrypt.compare(password, client.password)) {
-      clientConnection.close();
+  
       return res.status(200).json({
         message: 'Login exitoso',
         user: {
@@ -101,7 +108,7 @@ router.post('/loginuser', async (req, res) => {
         }
       });
     }
-    clientConnection.close();
+    
 
     // Intentar autenticar como empleado
     const employeeConnection = await mongoose.createConnection(
@@ -116,7 +123,7 @@ router.post('/loginuser', async (req, res) => {
     }));
     const employee = await EmployeeModel.findOne({ email });
     if (employee && await bcrypt.compare(password, employee.password)) {
-      employeeConnection.close();
+   
       return res.status(200).json({
         message: 'Login exitoso',
         user: {
@@ -127,7 +134,7 @@ router.post('/loginuser', async (req, res) => {
         }
       });
     }
-    employeeConnection.close();
+  
 
     // Intentar autenticar como administrador
     if (restaurant.owner && restaurant.owner.email === email) {
@@ -201,8 +208,7 @@ console.log(restaurant.location)
 
     res.status(200).json({ message: 'exitoso', datos });
 
-    // 6. Cerrar conexión
-    clientConnection.close();
+
 
   } catch (err) {
     console.error('Error de sesión:', err);

@@ -4,375 +4,521 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const Restaurant = require('../models/restaurantes');
+const roleSchema = require('../models/roles');
 require('dotenv').config();
 
+const multer = require('multer');
+const upload = multer(); 
+const uri = process.env.HEII_MONGO_URI;
+const dbName = process.env.HEII_MONGO_DB_NAME;
 async function hashPassword(plainPassword) {
   const saltRounds = 15;
   const hash = await bcrypt.hash(plainPassword, saltRounds);
   return hash;
 }
-
-/**
- * Ruta para registrar un nuevo restaurante
- */
-router.post('/', async (req, res) => {
-  try {
-    console.log("Cuerpo de la solicitud recibido:", req.body);
-
-    const { name, owner, membership, config } = req.body;
-
-    const databaseName = `tenant_${name.toLowerCase().replace(/\s+/g, '')}`;
-    console.log("Nombre de la base de datos generado:", databaseName);
-
-    // Crear nuevo documento en la base admin
-    const newRestaurant = new Restaurant({
-      name,
-      owner,
-      databaseName,
-      membership: {
-        ...membership,
-        startDate: new Date(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 días por defecto
-        autoRenew: membership?.autoRenew ?? true
-      },
-      config
-    });
-
-    console.log("Nuevo restaurante creado:", newRestaurant);
-
-    // Hashear la contraseña del propietario
-    newRestaurant.owner.password = await hashPassword(owner.password);
-    console.log("Contraseña hasheada:", newRestaurant.owner.password);
-
-    // Verificar si ya existe un restaurante con el mismo nombre o base de datos
-    const existe = await Restaurant.findOne({
-      $or: [
-        { name: name.toLowerCase() },
-        { databaseName: databaseName }
-      ]
-    });
-
-    console.log("Resultado de la búsqueda de restaurante existente:", existe);
-
-    if (existe) {
-      console.log("El restaurante ya existe.");
-      return res.status(400).json({ error: 'El restaurante ya existe con ese nombre o base de datos' });
+const userSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  path: { type: String, required: false },
+  password: { type: String, required: true },
+  registrationDate: { type: Date, default: Date.now },
+  plan: {
+    id: { type: mongoose.Schema.Types.ObjectId }, // Referencia a otro modelo
+    nombre: { type: String },
+    fechaInicio: { type: Date },
+    fechaFin: { type: Date }
+  },
+  estadoMembresia: {
+    type: String,
+    enum: ['activa', 'inactiva', 'vencida', 'pendiente'], // Valores permitidos
+    default: 'inactiva'
+  },
+  datosCompletos: { type: Boolean, default: false },
+  locations: [
+    {
+      nombre: { type: String, required: false },
+      direccion: { type: String, required: false },
+      telefono: { type: String, required: false },
+      horario: { type: String, required: false },
+      imagen: { type: Buffer } 
     }
-
-    // Guardar el nuevo restaurante en la base de datos admin
-    await newRestaurant.save();
-    console.log("Nuevo restaurante guardado en la base de datos admin.");
-
-    // Crear conexión a la base de datos del cliente
-    const clientConnection = await mongoose.createConnection(
-      process.env.HEII_MONGO_URI,
-      {
-        dbName: databaseName,
-      }
-    );
-
-    console.log("Conexión a la base de datos del cliente creada.");
-
-    // Crear colecciones base en la base de datos del cliente
-    await clientConnection.createCollection('admin');
-    await clientConnection.createCollection('employees');
-    await clientConnection.createCollection('products');
-    await clientConnection.createCollection('orders');
-    await clientConnection.createCollection('config');
-
-    console.log("Colecciones base creadas en la base de datos del cliente.");
-
-    // Cerrar la conexión del cliente
-    await clientConnection.close();
-    console.log("Conexión a la base de datos del cliente cerrada.");
-
-    res.status(201).json({ message: 'Restaurante registrado correctamente', databaseName });
-  } catch (err) {
-    console.error("Error en el proceso:", err);
-    res.status(500).json({ error: 'Error al registrar restaurante' });
-  }
+  ]
 });
+const Users = mongoose.model('users', userSchema);
 
 
-/**
- * Ruta para el inicio de sesión de empleados
- */
-// Ruta para el inicio de sesión de empleados
-router.post('/login', async (req, res) => {
+router. post('/login', async (req, res) => {
   try {
-    const { tenantName, email, password } = req.body;
+    const { email, password } = req.body;
 
-    // Buscar el restaurante correspondiente al tenantName
-    const restaurant = await Restaurant.findOne({ name: tenantName.toLowerCase() });
-    if (!restaurant) {
-      return res.status(404).json({ error: 'Restaurante no encontrado' });
+    // Validar que los campos requeridos estén presentes
+    if (!email || !password) {
+      return res.status(400).json({ error: 'El email y la contraseña son obligatorios' });
     }
 
-    // Conectar a la base de datos del restaurante
-    const clientConnection = await mongoose.createConnection(
-      process.env.HEII_MONGO_URI,
-      { dbName: restaurant.databaseName }
-    );
-
-    // Crear un modelo dinámico para los empleados
-    const EmployeeModel = clientConnection.model('employees', new mongoose.Schema({
-      email: String,
-      password: String,
-      name: String,
-      role: String,
-    }));
-
-    // Buscar al empleado en la base de datos del restaurante
-    const employee = await EmployeeModel.findOne({ email });
-    if (!employee) {
-      await clientConnection.close();
-      return res.status(404).json({ error: 'Empleado no encontrado' });
+    // Buscar al usuario en la base de datos
+    const user = await Users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
     // Verificar la contraseña
-    const isPasswordValid = await bcrypt.compare(password, employee.password);
+    const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      await clientConnection.close();
       return res.status(401).json({ error: 'Contraseña incorrecta' });
     }
 
     // Generar un token JWT
     const token = jwt.sign(
-      { id: employee._id, email: employee.email, tenant: restaurant.databaseName },
+      { id: user._id, email: user.email },
       process.env.JWT_SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: '1h' } // El token expira en 1 hora
     );
-
-    await clientConnection.close();
-
-    res.status(200).json({ message: 'Inicio de sesión exitoso', token });
-  } catch (err) {
-    console.error('Error en el inicio de sesión:', err);
+if (user.estadoMembresia === 'activa') {
+  res.status(200).json({ message: 'Inicio de sesión exitoso', user,token });
+    }
+   else{
+    res.status(200).json({ message: 'Inicio de sesión exitoso',user,token });}
+  } catch (error) {
+    console.error('Error al iniciar sesión:', error.message);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
 
-/**
- * Ruta para insertar un empleado en un restaurante específico
- */
-// Ruta para insertar un empleado en un restaurante específico
-router.post('/add-employee', async (req, res) => {
+router.post('/addUserPath', async (req, res) => {
   try {
-    const { tenantName, email, password, name, role } = req.body;
+    const { email, path } = req.body;
 
-    // Buscar el restaurante correspondiente al tenantName
-    const restaurant = await Restaurant.findOne({ name: tenantName.toLowerCase() });
-    if (!restaurant) {
-      return res.status(404).json({ error: 'Restaurante no encontrado' });
+    // Validar que los campos requeridos estén presentes
+    if (!email || !path) {
+      return res.status(400).json({ error: 'El email y el path son obligatorios' });
+    } 
+
+    // Buscar al usuario por email
+    const user = await Users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    // Conectar a la base de datos del restaurante
-    const clientConnection = await mongoose.createConnection(
-      process.env.HEII_MONGO_URI,
-      { dbName: restaurant.databaseName }
-    );
+   
 
-    // Crear un modelo dinámico para los empleados
-    const EmployeeModel = clientConnection.model('employees', new mongoose.Schema({
-      email: { type: String, required: true, unique: true },
-      password: { type: String, required: true },
-      name: { type: String, required: true },
-      role: { type: String, required: true },
-    }));
+    // Agregar el campo `path` al usuario
+    user.path = path;
 
-    // Verificar si el empleado ya existe
-    const existingEmployee = await EmployeeModel.findOne({ email });
-    if (existingEmployee) {
-      await clientConnection.close();
-      return res.status(400).json({ error: 'El empleado ya existe' });
+    // Guardar los cambios en la base de datos
+    await user.save();
+
+    res.status(200).json({ message: 'El campo "path" fue agregado al usuario exitosamente', user });
+  } catch (error) {
+    console.error('Error al agregar el campo "path" al usuario:', error.message);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+
+router.get('/verifyUserPath', async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    // Validar que el email esté presente
+    if (!email) {
+      return res.status(400).json({ error: 'El email es obligatorio' });
     }
 
-    // Hashear la contraseña del empleado
+    // Buscar al usuario por email
+    const user = await Users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // Verificar si el campo `path` existe
+    if (!user.path) {
+      return res.status(404).json({ error: 'El usuario no tiene el campo "path"' });
+    }
+
+    res.status(200).json({ message: 'El usuario tiene el campo "path"', path: user.path });
+  } catch (error) {
+    console.error('Error al verificar el campo "path":', error.message);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+// Ruta para registrar un usuario
+router.post('/registerUser', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validar que los campos requeridos estén presentes
+    if (!email || !password) {
+      return res.status(400).json({ error: 'El email y la contraseña son obligatorios' });
+    }
+
+    // Verificar si el usuario ya existe
+    const existingUser = await Users.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ error: 'El usuario ya está registrado' });
+    }
+
+    // Hashear la contraseña
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Crear un nuevo empleado
-    const newEmployee = new EmployeeModel({
+    // Crear un nuevo usuario
+    const newUser = new Users({
       email,
-      password: hashedPassword,
-      name,
-      role,
+      password: hashedPassword
     });
 
-    // Guardar el empleado en la base de datos
-    await newEmployee.save();
+    // Guardar el usuario en la base de datos
+    await newUser.save();
 
-    await clientConnection.close();
+    res.status(201).json({ message: 'Usuario registrado exitosamente', user: { email: newUser.email, registrationDate: newUser.registrationDate } });
+  } catch (error) {
+    console.error('Error al registrar el usuario:', error.message);
+    res.status(500).json({ error: 'Error al registrar el usuario' });
+  }
+});
 
-    res.status(201).json({ message: 'Empleado agregado correctamente', employee: newEmployee });
-  } catch (err) {
-    console.error('Error al agregar empleado:', err);
+// Ruta para actulizar si tiene membresias
+router.post('/updateUser', async (req, res) => {
+  try {
+    const { email, password, planId, planNombre, fechaInicio, fechaFin, estadoMembresia, datosCompletos } = req.body;
+
+    // Validar que el email esté presente
+    if (!email) {
+      return res.status(400).json({ error: 'El email es obligatorio' });
+    }
+
+    // Buscar al usuario por email
+    const user = await Users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // Actualizar la contraseña si se proporciona
+    if (password) {
+      user.password = await bcrypt.hash(password, 10);
+    }
+
+    // Actualizar los datos del usuario
+    if (planId || planNombre || fechaInicio || fechaFin) {
+     
+      user.plan = { 
+        id: planId || user.plan?.id,
+        nombre: planNombre || user.plan?.nombre,
+        fechaInicio: fechaInicio || user.plan?.fechaInicio,
+        fechaFin: fechaFin || user.plan?.fechaFin,
+      };
+    }
+
+    if (estadoMembresia) {
+      user.estadoMembresia = estadoMembresia;
+    }
+
+    if (datosCompletos !== undefined) {
+      user.datosCompletos = datosCompletos;
+    }
+
+    // Guardar los cambios en la base de datos
+    await user.save();
+
+    res.status(200).json({ message: 'Usuario actualizado exitosamente', user });
+  } catch (error) {
+    console.error('Error al actualizar el usuario:', error.message);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
 
-
-
-
-router.post('/add-product', async (req, res) => {
+router.get('/getLocations', async (req, res) => {
   try {
-    const { tenantName, name, description, price, category, available } = req.body;
+    const { email } = req.query;
 
-    // Buscar el restaurante correspondiente
-    const restaurant = await Restaurant.findOne({ name: tenantName.toLowerCase() });
-    if (!restaurant) {
-      return res.status(404).json({ error: 'Restaurante no encontrado' });
+    // Validar que el email esté presente
+    if (!email) {
+      return res.status(400).json({ error: 'El email es obligatorio' });
     }
 
-    // Conectar a la base de datos del tenant
-    const clientConnection = await mongoose.createConnection(
-      process.env.HEII_MONGO_URI,
-      { dbName: restaurant.databaseName }
+    // Buscar al usuario por email
+    const user = await Users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    console.log(user)
+    if (user.locations.length===0) {
+      return res.status(404).json({ error: 'El usuario no tiene locaciones registradas' });
+    }
+
+    // Obtener el nombre de la base de datos asociada a la locación
+    const databaseName = `location_${user.locations[0].nombre.toLowerCase().replace(/\s+/g, '_')}`;
+
+    // Conectar a la base de datos de la locación
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName
+    });
+
+
+
+    // Cerrar la conexión
+    await clientConnection.close();
+
+    // Responder con los datos de la locación y las colecciones
+    res.status(200).json( user.locations[0]
+    );
+  } catch (error) {
+    console.error('Error al obtener las locaciones:', error.message);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+ // Configuración básica para manejar datos en memoria
+ router.post('/addLocation', upload.single('imagen'), async (req, res) => {
+  try {
+    const { email, nombre, direccion, telefono, horario } = req.body;
+    const imagen = req.file; // Archivo enviado
+
+    // Validar que los campos requeridos estén presentes
+    if (!email || !nombre || !direccion || !telefono || !horario || !imagen) {
+      return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+    }
+
+    // Buscar al usuario por email
+    const user = await Users.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // Inicializar el array de locaciones si no existe
+    if (!user.locations) {
+      user.locations = [];
+    }
+
+    // Agregar la nueva locación al array de locaciones
+    user.locations.push({
+      nombre,
+      direccion,
+      telefono,
+      horario,
+      imagen: imagen.buffer // Guardar la imagen como binario
+    });
+
+    // Guardar los cambios en la base de datos
+    await user.save();
+
+    // Crear una nueva base de datos con el nombre proporcionado
+    const databaseName = `location_${nombre.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName
+    });
+
+    // Crear colecciones base en la nueva base de datos
+    await clientConnection.createCollection('employees');
+    await clientConnection.createCollection('products');
+    await clientConnection.createCollection('orders');
+    await clientConnection.createCollection('config');
+
+    // Cerrar la conexión
+    await clientConnection.close();
+
+    res.status(201).json({ message: 'Ubicación agregada y base de datos creada exitosamente', user });
+  } catch (error) {
+    console.error('Error al agregar ubicación:', error.message);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+// Ruta para añadir datos a una colección específica de la base de datos de la locación
+router.post('/addDataToCollection', upload.single('imagen'), async (req, res) => {
+  try {
+    const { databaseName, collectionName, nombre, descripcion, precio, tipo, disponible } = req.body;
+    const imagen = req.file; // Archivo enviado
+
+    // Validar que los campos requeridos estén presentes
+    if (!databaseName || !collectionName || !nombre || !descripcion || !precio || !tipo || disponible === undefined || !imagen) {
+      return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+    }
+
+    // Conectar a la base de datos especificada
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: "location_"+databaseName
+    });
+
+    // Crear el objeto del producto
+    const productData = {
+      nombre,
+      descripcion,
+      precio: parseFloat(precio), // Convertir el precio a número
+      tipo,
+      disponible: disponible === 'true', // Convertir el valor a booleano
+      imagen: imagen.buffer // Guardar la imagen como binario
+    };
+
+    // Añadir los datos a la colección
+    const collection = clientConnection.collection(collectionName);
+    const result = await collection.insertOne(productData);
+
+    // Cerrar la conexión
+    await clientConnection.close();
+
+    res.status(201).json({ message: 'Producto añadido exitosamente', result });
+  } catch (error) {
+    console.error('Error al añadir datos a la colección:', error.message);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+router.get('/getDataFromCollection', async (req, res) => {
+  try {
+    const { nombre, collectionName } = req.query;
+
+    // Validar que los campos requeridos estén presentes
+    if (!nombre || !collectionName) {
+      return res.status(400).json({ error: 'El nombre de la locación y la colección son obligatorios' });
+    }
+
+    // Generar el nombre de la base de datos
+    const databaseName = `location_${nombre.toLowerCase().replace(/\s+/g, '_')}`;
+    console.log(databaseName);
+
+    // Conectar a la base de datos de la locación
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName
+    });
+
+    // Crear un modelo dinámico para la colección
+    const DynamicModel = clientConnection.model(
+      collectionName,
+      new mongoose.Schema({}, { strict: false }) // Esquema flexible
     );
 
-    // Definir el esquema del producto
-    const ProductModel = clientConnection.model('products', new mongoose.Schema({
-      name: { type: String, required: true },
-      description: String,
-      price: { type: Number, required: true },
-      category: String,
-      available: { type: Boolean, default: true }
-    }));
+    // Obtener los datos de la colección
+    const data = await DynamicModel.find({});
 
-    // Crear y guardar el producto
-    const newProduct = new ProductModel({ name, description, price, category, available });
-    await newProduct.save();
-
+    // Cerrar la conexión
     await clientConnection.close();
 
-    res.status(201).json({ message: 'Producto agregado correctamente', product: newProduct });
-
-  } catch (err) {
-    console.error('Error al agregar producto:', err);
+    res.status(200).json({ message: 'Datos obtenidos exitosamente', data });
+  } catch (error) {
+    console.error('Error al obtener datos de la colección:', error.message);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
-router.post('/add-order', async (req, res) => {
-  try {
-    const { tenantName, type, items, total, details } = req.body;
 
-    // Validación básica del tipo de orden
-    const validTypes = ['domicilio', 'mesa', 'chat'];
-    if (!validTypes.includes(type)) {
-      return res.status(400).json({ error: 'Tipo de orden inválido' });
+
+
+
+const getRoleModel = (dbConnection) => {
+  return dbConnection.model('Role', roleSchema); // Crear el modelo dinámico
+};
+
+router.post('/registerRoles', async (req, res) => {
+  try {
+    const { databaseName, roles } = req.body;
+
+    // Validar que los datos requeridos estén presentes
+    if (!databaseName || !Array.isArray(roles) || roles.length === 0) {
+      return res.status(400).json({ error: 'El nombre de la base de datos y un array de roles son obligatorios.' });
     }
 
-    // Buscar el restaurante correspondiente
-    const restaurant = await Restaurant.findOne({ name: tenantName.toLowerCase() });
-    if (!restaurant) {
-      return res.status(404).json({ error: 'Restaurante no encontrado' });
+    // Conectar a la base de datos del usuario
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`
+    });
+
+    // Obtener el modelo dinámico para los roles
+    const Role = getRoleModel(clientConnection);
+    console.log('Creando modelo dinámico para roles:', Role);
+
+    // Insertar los roles en la colección
+    const result = await Role.insertMany(roles, { ordered: false }); // `ordered: false` permite continuar si hay duplicados
+
+    // Cerrar la conexión
+    await clientConnection.close();
+
+    res.status(201).json({ message: 'Roles registrados exitosamente.', data: result });
+  } catch (error) {
+    console.error('Error al registrar los roles:', error.message);
+    res.status(500).json({ error: 'Error al registrar los roles' });
+  }
+});
+router.get('/getRoles', async (req, res) => {
+  try {
+    const { databaseName } = req.query;
+
+    // Validar que el nombre de la base de datos esté presente
+    if (!databaseName) {
+      return res.status(400).json({ error: 'El nombre de la base de datos es obligatorio.' });
     }
 
-    // Conexión con la base de datos del restaurante
-    const clientConnection = await mongoose.createConnection(
-      process.env.HEII_MONGO_URI,
-      { dbName: restaurant.databaseName }
-    );
-
-    // Modelo de orden
-    const OrderModel = clientConnection.model('orders', new mongoose.Schema({
-      type: { type: String, required: true },
-      items: [{
-        productId: String,
-        name: String,
-        quantity: Number,
-        price: Number
-      }],
-      total: Number,
-      status: { type: String, default: 'pendiente' },
-      createdAt: { type: Date, default: Date.now },
-      details: mongoose.Schema.Types.Mixed
-    }));
-
-    // Crear y guardar la orden
-    const newOrder = new OrderModel({ type, items, total, details });
-    await newOrder.save();
-
-    await clientConnection.close();
-
-    res.status(201).json({ message: 'Orden registrada exitosamente', order: newOrder });
-
-  } catch (err) {
-    console.error('Error al registrar orden:', err);
-    res.status(500).json({ error: 'Error en el servidor' });
-  }
-});
-
-
-router.get('/get-products', async (req, res) => {
-  try {
-    const { tenantName } = req.query;
-
-    const restaurant = await Restaurant.findOne({ name: tenantName.toLowerCase() });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurante no encontrado' });
-
+    // Conectar a la base de datos del usuario
     const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-      dbName: restaurant.databaseName
+      dbName: `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`
     });
 
-    const ProductModel = clientConnection.model('products', new mongoose.Schema({}, { strict: false }));
-    const products = await ProductModel.find();
+    // Obtener el modelo dinámico para los roles
+    const Role = getRoleModel(clientConnection);
 
+    // Obtener los roles disponibles
+    const roles = await Role.find({ disponible: true });
+
+    // Cerrar la conexión
     await clientConnection.close();
-    res.status(200).json({ products });
-  } catch (err) {
-    console.error('Error al obtener productos:', err);
-    res.status(500).json({ error: 'Error en el servidor' });
+
+    res.status(200).json({ message: 'Roles obtenidos exitosamente.', data: roles });
+  } catch (error) {
+    console.error('Error al obtener los roles:', error.message);
+    res.status(500).json({ error: 'Error al obtener los roles' });
   }
 });
-
-router.get('/get-orders', async (req, res) => {
+router.put('/updateRole', async (req, res) => {
   try {
-    const { tenantName } = req.query;
+    const { databaseName, roleId, updates } = req.body;
 
-    const restaurant = await Restaurant.findOne({ name: tenantName.toLowerCase() });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurante no encontrado' });
-
-    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-      dbName: restaurant.databaseName
-    });
-
-    const OrderModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
-    const orders = await OrderModel.find();
-
-    await clientConnection.close();
-    res.status(200).json({ orders });
-  } catch (err) {
-    console.error('Error al obtener órdenes:', err);
-    res.status(500).json({ error: 'Error en el servidor' });
-  }
-});
-router.get('/get-orders-by-type/:type', async (req, res) => {
-  try {
-    const { tenantName } = req.query;
-    const { type } = req.params;
-
-    const validTypes = ['domicilio', 'mesa', 'chat'];
-    if (!validTypes.includes(type)) {
-      return res.status(400).json({ error: 'Tipo de orden inválido' });
+    // Validar que los datos requeridos estén presentes
+    if (!databaseName || !roleId || !updates) {
+      return res.status(400).json({ error: 'El nombre de la base de datos, el ID del rol y los datos a actualizar son obligatorios.' });
     }
 
-    const restaurant = await Restaurant.findOne({ name: tenantName.toLowerCase() });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurante no encontrado' });
-
+    // Conectar a la base de datos del usuario
     const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-      dbName: restaurant.databaseName
+      dbName: `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`
     });
 
-    const OrderModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
-    const orders = await OrderModel.find({ type });
+    // Obtener el modelo dinámico para los roles
+    const Role = getRoleModel(clientConnection);
 
+    // Actualizar el rol
+    const updatedRole = await Role.findByIdAndUpdate(roleId, updates, { new: true });
+
+    // Cerrar la conexión
     await clientConnection.close();
-    res.status(200).json({ orders });
-  } catch (err) {
-    console.error('Error al obtener órdenes por tipo:', err);
-    res.status(500).json({ error: 'Error en el servidor' });
+
+    res.status(200).json({ message: 'Rol actualizado exitosamente.', data: updatedRole });
+  } catch (error) {
+    console.error('Error al actualizar el rol:', error.message);
+    res.status(500).json({ error: 'Error al actualizar el rol' });
   }
 });
+router.delete('/deleteRole', async (req, res) => {
+  try {
+    const { databaseName, roleId } = req.body;
+    // Validar que los datos requeridos estén presentes
+    if (!databaseName || !roleId) {
+      return res.status(400).json({ error: 'El nombre de la base de datos y el ID del rol son obligatorios.' });
+    }
 
+    // Conectar a la base de datos del usuario
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`
+    });
 
+    // Obtener el modelo dinámico para los roles
+    const Role = getRoleModel(clientConnection);
+
+    // Eliminar el rol
+    await Role.findByIdAndDelete(roleId);
+
+    // Cerrar la conexión
+    await clientConnection.close();
+
+    res.status(200).json({ message: 'Rol eliminado exitosamente.' });
+  } catch (error) {
+    console.error('Error al eliminar el rol:', error.message);
+    res.status(500).json({ error: 'Error al eliminar el rol' });
+  }
+});
 module.exports = router;
