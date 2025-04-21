@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+require('dotenv').config();
 
 
 export const transporter = nodemailer.createTransport({
@@ -6,8 +7,8 @@ export const transporter = nodemailer.createTransport({
     port: 465,
     secure: true, // true for port 465, false for other ports
     auth: {
-      user: "gabodelac@gmail.com",
-      pass: "ezfq hdcc wnyg rcol",
+      user: process.env.MAIL_USER,
+      pass: process.env.MAIL_PASS,
     },
   });
 
