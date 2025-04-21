@@ -4,25 +4,8 @@ const uri = process.env.HEII_MONGO_URI;
 const dbName = process.env.HEII_MONGO_DB_NAME;
 const express = require('express');
 const router = express.Router();
+const LSMembership = require('../models/membership');
 
-// Define the LSMembership schema
-const lSMembershipSchema = new mongoose.Schema({
-  plan_name: String,
-  plan_type:Number,
-  description: String,
-  includes: [String],
-  chats_included: Number,
-  precio_mensual_cop: Number,
-  minutos_incluidos: Number,
-  precio_por_minuto: Number,
-  precio_total_cop: Number,
-  additional: Boolean,
-  sedes:Number,
-  disponible: { type: Boolean, default: true } // Add the 'disponible' field
-});
-
-// Create the LSMembership model
-const LSMembership = mongoose.model('lsmembership', lSMembershipSchema);
 
 // Corrected route definition
 router.post('/registerMembershipBulk', async (req, res) => {

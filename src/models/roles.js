@@ -2,9 +2,10 @@ const mongoose = require('mongoose');
 
 // Esquema para los cargos
 const roleSchema = new mongoose.Schema({
-  nombre: { type: String, required: true, unique: true }, // Nombre del cargo
-  descripcion: { type: String, required: false }, // Descripción del cargo
-  disponible: { type: Boolean, default: true } // Indica si el cargo está activo
+  
+  nombre: { type: String, required: true, unique: true },
+  descripcion: { type: String, required: false },
+  disponible: { type: Boolean, default: true }
 });
 
 // Exportar solo el esquema
