@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const Restaurant = require('../models/restaurantes');
 const Role = require('../models/roles');
 const employeeSchema = require('../models/employees'); // Importar el esquema de empleados
+const categoriaSchema = require('../models/categoria');
 require('dotenv').config();
 const Joi = require('joi');
 const sanitize = require('mongo-sanitize');
@@ -452,32 +453,36 @@ router.post('/productos/create', upload.single('imagen'), async (req, res) => {
   }
 });
 router.get('/categorias', async (req, res) => {
+  const { databaseName } = req.query;
+
+  if (!databaseName) {
+    return res.status(400).json({ error: 'Falta el nombre de la base de datos' });
+  }
+
   try {
-    const { databaseName } = req.query;
-    if (!databaseName) {
-      return res.status(400).json({ error: 'Falta el nombre de la base de datos' });
-    }
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName
+    });
 
-    const client = new MongoClient(process.env.HEII_MONGO_URI);
-    await client.connect();
-    const db = client.db(`location_${databaseName}`);
-    const categorias = await db.collection('categorias').find({}).toArray();
+    const Categoria = clientConnection.model('Categoria', categoriaSchema, 'categorias');
 
-    await client.close();
-    res.json(categorias);
+    const categorias = await Categoria.find({}).lean();
+    await clientConnection.close();
+
+    res.status(200).json({ message: 'Categorías obtenidas exitosamente.', data: categorias });
   } catch (error) {
     console.error('Error al obtener categorías:', error.message);
     res.status(500).json({ error: 'Error interno al obtener categorías' });
   }
 });
-
 router.post('/categorias/create', upload.single('imagen'), async (req, res) => {
   try {
-    const { databaseName, name, id } = req.body;
+    const { databaseName, name } = req.body;
     const imagen = req.file;
 
     // Validación básica
-    if (!databaseName || !name || !id || !imagen) {
+    if (!databaseName || !name|| !imagen) {
       return res.status(400).json({ error: 'Todos los campos son obligatorios' });
     }
 
@@ -486,10 +491,10 @@ router.post('/categorias/create', upload.single('imagen'), async (req, res) => {
     const base64Image = buffer.toString('base64');
 
     const categoria = {
-      id,
       name,
       imageUrl: base64Image,
       createdAt: new Date(),
+      subcategorias: [],
     };
 
     // Conexión dinámica
@@ -511,49 +516,63 @@ if (!existe) {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
+
 router.put('/categorias/update', async (req, res) => {
   try {
-    const { databaseName, id, name } = req.body;
-    if (!databaseName || !id || !name) return res.status(400).json({ error: 'Datos incompletos' });
+    const { databaseName, _id, name } = req.body;
+    if (!databaseName || !_id || !name) {
+      return res.status(400).json({ error: 'Datos incompletos' });
+    }
 
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
     const connection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-      dbName: 'location_' + databaseName,
+      dbName
     });
 
-    const result = await connection.collection('categorias').updateOne(
-      { id },
-      { $set: { name } }
-    );
+    const Categoria = connection.model('Categoria', categoriaSchema, 'categorias');
+
+    const result = await Categoria.updateOne({ _id: _id }, { $set: { name } });
 
     await connection.close();
     res.status(200).json({ message: 'Categoría actualizada', result });
   } catch (error) {
+    console.error('Error al actualizar categoría:', error.message);
     res.status(500).json({ error: 'Error interno al actualizar' });
   }
 });
+
 router.put('/categorias/toggle', async (req, res) => {
   try {
-    const { databaseName, id } = req.body;
-    if (!databaseName || !id) return res.status(400).json({ error: 'Datos incompletos' });
+    const { databaseName, _id } = req.body;
+    console.log('Entrando a la ruta de toggle',req.body);
+    if (!databaseName || !_id) {
+      return res.status(400).json({ error: 'Datos incompletos' });
+    }
 
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
     const connection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-      dbName: 'location_' + databaseName,
+      dbName
     });
 
-    const categoria = await connection.collection('categorias').findOne({ id });
-    if (!categoria) return res.status(404).json({ error: 'Categoría no encontrada' });
+    const Categoria = connection.model('Categoria', categoriaSchema, 'categorias');
 
-    const result = await connection.collection('categorias').updateOne(
-      { id },
-      { $set: { active: !categoria.active } }
-    );
+    const categoria = await Categoria.findById(_id);
+    if (!categoria) {
+      await connection.close();
+      return res.status(404).json({ error: 'Categoría no encontrada' });
+    }
+
+    categoria.active = !categoria.active;
+    await categoria.save();
 
     await connection.close();
-    res.status(200).json({ message: 'Estado actualizado', result });
+    res.status(200).json({ message: 'Estado actualizado correctamente' });
   } catch (error) {
+    console.error('Error al cambiar estado de categoría:', error.message);
     res.status(500).json({ error: 'Error interno al cambiar estado' });
   }
 });
+
 
 router.get('/getDataFromCollection', async (req, res) => {
   try {
@@ -567,7 +586,6 @@ router.get('/getDataFromCollection', async (req, res) => {
     // Generar el nombre de la base de datos
     const databaseName = `location_${nombre.toLowerCase().replace(/\s+/g, '_')}`;
     console.log(databaseName);
-x
     // Conectar a la base de datos de la locación
     const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
       dbName: databaseName
