@@ -481,41 +481,55 @@ router.post('/categorias/create', upload.single('imagen'), async (req, res) => {
     const { databaseName, name } = req.body;
     const imagen = req.file;
 
-    // Validación básica
-    if (!databaseName || !name|| !imagen) {
+    if (!databaseName || !name || !imagen || !req.body.subcategorias) {
       return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+    }
+
+    // Parsear subcategorias (viene como string)
+    let subcategorias;
+    try {
+      subcategorias = JSON.parse(req.body.subcategorias);
+      if (!Array.isArray(subcategorias)) throw new Error('Formato inválido');
+    } catch (err) {
+      return res.status(400).json({ error: 'Subcategorías con formato inválido' });
     }
 
     // Convertir imagen a base64
     const buffer = imagen.buffer;
     const base64Image = buffer.toString('base64');
 
+    // Crear objeto categoría
     const categoria = {
       name,
       imageUrl: base64Image,
       createdAt: new Date(),
-      subcategorias: [],
+      subcategorias,
     };
 
-    // Conexión dinámica
+    // Conexión dinámica a base de datos
     const client = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
       dbName: 'location_' + databaseName,
     });
-const existe = await client.collection('categorias').findOne({ name });
-if (!existe) {
+
+    // Validación de existencia previa
+    const existe = await client.collection('categorias').findOne({ name });
+    if (existe) {
+      await client.close();
+      return res.status(400).json({ error: 'Ya existe una categoría con ese nombre' });
+    }
+
+    // Guardar en base de datos
     const result = await client.collection('categorias').insertOne(categoria);
     await client.close();
 
     res.status(201).json({ message: 'Categoría creada con éxito', result });
-}else {
-  await client.close();
-  return res.status(400).json({ error: 'Ya existe una categoría con ese nombre' });
-}
   } catch (error) {
     console.error('Error al crear categoría:', error.message);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
+
+
 
 router.put('/categorias/update', async (req, res) => {
   try {
