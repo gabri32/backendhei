@@ -6,6 +6,8 @@ const connectToDatabase = require('./conectiondb');
 const restaurantRoutes = require('../src/routes/restaurantes');
 const authRoutes = require('./routes/auth');
 const membershipRoutes = require('./routes/membershipt');
+const userRoutes = require('./routes/users');
+const chatbotRoutes = require('./routes/chatbotroutes')
 
 const allowedOrigins = [
     "http://localhost:5173",
@@ -27,7 +29,7 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(bodyParser.json());
+
 
 // Routes
 app.get('/', (req, res) => {
@@ -44,11 +46,15 @@ app.get('/restaurantes', async (req, res) => {
         res.status(500).json({ error: 'Error al obtener los restaurantes' });
     }
 });
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+
 
 // Registrar rutas
 app.use('/api/auth', authRoutes);
-app.use('/api/restaurantes', restaurantRoutes); // Corregido aquí
-app.use('/api/memberships', membershipRoutes); // Corregido aquí
+app.use('/api/restaurantes', restaurantRoutes); 
+app.use('/api/memberships', membershipRoutes); 
+app.use('/api/chatV1', chatbotRoutes)
 connectToDatabase();
 
 // Start the server

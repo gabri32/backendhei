@@ -27,13 +27,7 @@ router.post('/registerMembershipBulk', async (req, res) => {
   } catch (error) {
     console.error('Error al registrar las membresías:', error.message);
     res.status(500).json({ error: 'Error al registrar las membresías' });
-  } finally {
-    // Close the database connection
-    // if (mongoose.connection.readyState === 1) {
-    //   await mongoose.disconnect();
-    //   console.log('Desconexión de MongoDB');
-    // }
-  }
+  } 
 });
 
 
@@ -46,13 +40,6 @@ router.get('/getMemberships', async (req, res) => {
     }catch (error) {
         console.error('Error al obtener las membresías:', error.message);
         res.status(500).json({ error: 'Error al obtener las membresías' });
-    }
-    finally {
-        // Close the database connection
-        // if (mongoose.connection.readyState === 1) {
-        //     await mongoose.disconnect();
-        //     console.log('Desconexión de MongoDB');
-        // }
     }
 })
 module.exports = router;

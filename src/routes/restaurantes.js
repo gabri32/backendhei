@@ -1,5 +1,5 @@
 const express = require('express');
-const   router = express.Router();
+const router = express.Router();
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -9,21 +9,11 @@ const employeeSchema = require('../models/employees'); // Importar el esquema de
 const categoriaSchema = require('../models/categoria');
 require('dotenv').config();
 const Joi = require('joi');
-const sanitize = require('mongo-sanitize');
 const multer = require('multer');
-const upload = multer(); 
-const uri = process.env.HEII_MONGO_URI;
-const dbName = process.env.HEII_MONGO_DB_NAME;
-const { MongoClient } = require('mongodb');
+const upload = multer();
 const nodemailer = require('nodemailer');
-async function hashPassword(plainPassword) {
-  const saltRounds = 15;
-  const hash = await bcrypt.hash(plainPassword, saltRounds);
-  return hash;
-}
-
 const LSMembership = require('../models/membership');
-
+const SALT_ROUNDS = 10;
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   path: { type: String, required: false },
@@ -50,48 +40,56 @@ const userSchema = new mongoose.Schema({
       direccion: { type: String, required: false },
       telefono: { type: String, required: false },
       horario: { type: String, required: false },
-      imagen: { type: Buffer } ,
+      imagen: { type: Buffer },
       headerimage: { type: Buffer }
     }
   ]
 });
 const Users = mongoose.model('users', userSchema);
-
-
-router. post('/login', async (req, res) => {
+const staff = require('../models/usuarios');
+const clients = require('../models/client');
+router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
 
-    // Validar que los campos requeridos estén presentes
-    if (!email || !password) {
-      return res.status(400).json({ error: 'El email y la contraseña son obligatorios' });
-    }
+    if (req) {
+      console.log(req.body)
+      const { email, password } = req.body;
+      console.log('🔑 Datos de inicio de sesión:', req.body);
+      // Validar que los campos requeridos estén presentes
+      if (!email || !password) {
+        return res.status(400).json({ error: 'El email y la contraseña son obligatorios' });
+      }
 
-    // Buscar al usuario en la base de datos
-    const user = await Users.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
+      // Buscar al usuario en la base de datos
+      const user = await Users.findOne({ email });
+      if (!user) {
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
 
-    // Verificar la contraseña
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    console.log('🔑 ¿Contraseña válida?', isPasswordValid);
-    if (!isPasswordValid) {
-      return res.status(401).json({ error: 'Contraseña incorrecta' });
-    }
+      // Verificar la contraseña
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      console.log('🔑 ¿Contraseña válida?', isPasswordValid);
+      if (!isPasswordValid) {
+        return res.status(401).json({ error: 'Contraseña incorrecta' });
+      }
 
-    // Generar un token JWT
-    const token = jwt.sign(
-      { id: user._id, email: user.email },
-      process.env.JWT_SECRET,
-      { expiresIn: '1h' } // El token expira en 1 hora
-    );
-if (user.estadoMembresia === 'activa') {
-const mebresiaparams = await LSMembership.findById(user.plan.id);
-  res.status(200).json({ message: 'Inicio de sesión exitoso', user,token, mebresiaparams });
+      // Generar un token JWT
+      const token = jwt.sign(
+        { id: user._id, email: user.email },
+        process.env.JWT_SECRET,
+        { expiresIn: '1h' } // El token expira en 1 hora
+      );
+      if (user.estadoMembresia === 'activa') {
+        const mebresiaparams = await LSMembership.findById(user.plan.id);
+        res.status(200).json({ message: 'Inicio de sesión exitoso', user, token, mebresiaparams });
+      }
+      else {
+        res.status(200).json({ message: 'Inicio de sesión exitoso', user, token });
+      }
     }
-   else{
-    res.status(200).json({ message: 'Inicio de sesión exitoso',user,token });}
+    else {
+      res.status(500).json({ error: 'Error en el req' });
+    }
   } catch (error) {
     console.error('Error al iniciar sesión:', error.message);
     res.status(500).json({ error: 'Error en el servidor' });
@@ -105,7 +103,7 @@ router.post('/addUserPath', async (req, res) => {
     // Validar que los campos requeridos estén presentes
     if (!email || !path) {
       return res.status(400).json({ error: 'El email y el path son obligatorios' });
-    } 
+    }
 
     // Buscar al usuario por email
     const user = await Users.findOne({ email });
@@ -113,7 +111,7 @@ router.post('/addUserPath', async (req, res) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-   
+
 
     // Agregar el campo `path` al usuario
     user.path = path;
@@ -262,12 +260,12 @@ router.post('/updateUser', async (req, res) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-   
+
 
     // Actualizar los datos del usuario
     if (planId || planNombre || fechaInicio || fechaFin) {
-     
-      user.plan = { 
+
+      user.plan = {
         id: planId || user.plan?.id,
         nombre: planNombre || user.plan?.nombre,
         fechaInicio: fechaInicio || user.plan?.fechaInicio,
@@ -309,25 +307,10 @@ router.get('/getLocations', async (req, res) => {
     }
 
     console.log(user)
-    if (user.locations.length===0) {
+    if (user.locations.length === 0) {
       return res.status(404).json({ error: 'El usuario no tiene locaciones registradas' });
     }
-
-    // // Obtener el nombre de la base de datos asociada a la locación
-    // const databaseName = `location_${user.locations[0].nombre.toLowerCase().replace(/\s+/g, '_')}`;
-
-    // // Conectar a la base de datos de la locación
-    // const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-    //   dbName: databaseName
-    // });
-
-
-
-    // Cerrar la conexión
-    // await clientConnection.close();
-
-    // Responder con los datos de la locación y las colecciones
-    res.status(200).json( user.locations
+    res.status(200).json(user.locations
     );
   } catch (error) {
     console.error('Error al obtener las locaciones:', error.message);
@@ -344,7 +327,7 @@ router.post('/addLocation', upload.fields([
 
     const imagen = files?.imagen?.[0];
     const headerimage = files?.headerimage?.[0];
-console.log(headerimage)
+
     // Validar que los campos requeridos estén presentes
     if (!email || !nombre || !direccion || !telefono || !horario || !imagen || !headerimage) {
       return res.status(400).json({ error: 'Todos los campos y ambas imágenes son obligatorios' });
@@ -391,10 +374,11 @@ console.log(headerimage)
 
     // Crear colecciones base en la nueva base de datos
     await clientConnection.createCollection('employees');
-    await clientConnection.createCollection('products');
+    await clientConnection.createCollection('productos');
     await clientConnection.createCollection('orders');
     await clientConnection.createCollection('config');
     await clientConnection.createCollection('roles');
+    await clientConnection.createCollection('promt');
 
     // Cerrar la conexión
     await clientConnection.close();
@@ -405,27 +389,58 @@ console.log(headerimage)
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
+router.get('/categorias/subcategorias', async (req, res) => {
+  try {
 
-router.post('/productos/create', upload.single('imagen'), async (req, res) => {
+    const { databaseName, categoryid } = req.query;
+
+    if (!databaseName || !categoryid) {
+      return res.status(400).json({ error: 'El nombre de la base de datos y el ID de la categoría son obligatorios.' });
+    }
+
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName,
+    });
+
+    const Categoria = clientConnection.model('categorias', categoriaSchema);
+    const _id = categoryid;
+    const categoria = await Categoria.findById(_id).lean();
+    await clientConnection.close();
+
+    if (!categoria) {
+      return res.status(404).json({ error: 'Categoría no encontrada.' });
+    }
+
+    res.status(200).json({ message: 'Subcategorías obtenidas exitosamente.', data: categoria.subcategorias });
+  } catch (error) {
+    console.error('Error al obtener subcategorías:', error.message);
+    res.status(500).json({ error: 'Error interno al obtener subcategorías.' });
+  }
+});
+router.post('/productos/upsert', upload.single('imagen'), async (req, res) => {
   try {
     const {
       databaseName,
+      _id, // Si se proporciona, se usará para actualizar
       nombre,
       descripcion,
       precio,
       id_sigo,
-      categoryIds
+      categoryIds,
+      subcategoryIds
     } = req.body;
 
     const imagen = req.file;
 
-    if (!databaseName || !nombre || !descripcion || !precio || !id_sigo || !categoryIds || !imagen) {
-      return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+    if (!databaseName || !nombre || !descripcion || !precio || !id_sigo || !categoryIds) {
+      return res.status(400).json({ error: 'Todos los campos son obligatorios, excepto el _id para crear un nuevo producto.' });
     }
 
     // Parsear arrays enviados como string
     const parsedCategories = JSON.parse(categoryIds);
 
+    // Conectar a la base de datos específica
     const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
       dbName: "location_" + databaseName
     });
@@ -438,20 +453,44 @@ router.post('/productos/create', upload.single('imagen'), async (req, res) => {
       precio: parseFloat(precio),
       id_sigo,
       categoryIds: parsedCategories,
-      imagen: imagen.buffer, // o podrías guardar URL si subes a cloud
+      imagen: imagen ? imagen.buffer : undefined, // Solo actualizar si se proporciona una nueva imagen
       active: true,
-      createdAt: new Date()
+      updatedAt: new Date(),
+      subcategoryIds: subcategoryIds ? JSON.parse(subcategoryIds) : undefined // Solo actualizar si se proporciona 
     };
 
-    const result = await collection.insertOne(productData);
-    await clientConnection.close();
+    let result;
 
-    res.status(201).json({ message: 'Producto creado exitosamente', result });
+    if (_id) {
+      // Actualizar producto existente
+      const updateData = { ...productData };
+      delete updateData.createdAt; // No modificar la fecha de creación
+      result = await collection.updateOne(
+        { _id: new mongoose.Types.ObjectId(_id) },
+        { $set: updateData }
+      );
+
+      if (result.matchedCount === 0) {
+        await clientConnection.close();
+        return res.status(404).json({ error: 'Producto no encontrado para actualizar.' });
+      }
+
+      res.status(200).json({ message: 'Producto actualizado exitosamente', result });
+    } else {
+      // Crear nuevo producto
+      productData.createdAt = new Date();
+      result = await collection.insertOne(productData);
+      res.status(201).json({ message: 'Producto creado exitosamente', result });
+    }
+
+    // Cerrar la conexión
+    await clientConnection.close();
   } catch (error) {
-    console.error('Error al crear producto:', error.message);
+    console.error('Error al crear o actualizar producto:', error.message);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
+
 router.get('/categorias', async (req, res) => {
   const { databaseName } = req.query;
 
@@ -558,7 +597,7 @@ router.put('/categorias/update', async (req, res) => {
 router.put('/categorias/toggle', async (req, res) => {
   try {
     const { databaseName, _id } = req.body;
-    console.log('Entrando a la ruta de toggle',req.body);
+    console.log('Entrando a la ruta de toggle', req.body);
     if (!databaseName || !_id) {
       return res.status(400).json({ error: 'Datos incompletos' });
     }
@@ -775,30 +814,32 @@ router.delete('/deleteRole', async (req, res) => {
 });
 
 
-
+/**Funciones de empleados y ususarios 
+ * TODAS CON dbName 
+ * getEmployees
+ * createEmployees
+ * editEmployees
+ * deleteEmployees
+*/
 
 router.get('/getEmployees', async (req, res) => {
   try {
     const { databaseName } = req.query;
 
-    // Validar que el nombre de la base de datos esté presente
     if (!databaseName) {
       return res.status(400).json({ error: 'El nombre de la base de datos es obligatorio.' });
     }
 
-    // Conectar a la base de datos específica
     const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
       dbName: `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`
     });
 
-    // Crear el modelo `Employee` en la base de datos específica
     const Employee = clientConnection.model('employees', employeeSchema);
 
-    // Obtener todos los empleados
-    const employees = await Employee.find({});
+    // Excluir el campo 'password' de la respuesta
+    const employees = await Employee.find({}, { password: 0 });
     console.log('Empleados obtenidos:', employees);
 
-    // Cerrar la conexión
     await clientConnection.close();
 
     res.status(200).json({ message: 'Empleados obtenidos exitosamente.', data: employees });
@@ -807,43 +848,67 @@ router.get('/getEmployees', async (req, res) => {
     res.status(500).json({ error: 'Error al obtener empleados' });
   }
 });
+
 router.post('/createEmployees', async (req, res) => {
   try {
     const { databaseName, employees } = req.body;
 
-    // Validar que los datos requeridos estén presentes
     if (!databaseName || !Array.isArray(employees) || employees.length === 0) {
       return res.status(400).json({ error: 'El nombre de la base de datos y un array de empleados son obligatorios.' });
     }
 
-    // Conectar a la base de datos específica
-    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-      dbName: `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`
-    });
-
-    // Crear el modelo `Employee` en la base de datos específica
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, { dbName });
 
     const Employee = clientConnection.model('employees', employeeSchema);
+    const User = clientConnection.model('usuarios', staff);
 
-    // Insertar empleados uno por uno
     const results = [];
+
     for (const employee of employees) {
       try {
+        if (!employee.email || !employee.password) {
+          console.warn('Empleado sin email o password, se omite:', employee);
+          continue;
+        }
+
+        // 1. Crear empleado
         const newEmployee = new Employee(employee);
         const savedEmployee = await newEmployee.save();
+
+        // 2. Hashear contraseña
+        const hashedPassword = await bcrypt.hash(employee.password, SALT_ROUNDS);
+
+        // 3. Buscar si ya existe el usuario
+        let user = await User.findOne({ email: employee.email });
+
+        if (user) {
+          // Ya existe (como cliente quizás), solo se actualiza ref_empleado
+          user.ref_empleado = savedEmployee._id;
+          user.password = hashedPassword; // opcional: podrías dejar la anterior
+          await user.save();
+        } else {
+          // No existe, se crea
+          await User.create({
+            email: employee.email,
+            password: hashedPassword,
+            ref_empleado: savedEmployee._id,
+            ref_cliente: null,
+            sucursal: dbName
+          });
+        }
+
         results.push(savedEmployee);
-        console.log('Empleado insertado:', savedEmployee);
+        console.log('Empleado y usuario insertados:', savedEmployee.email);
       } catch (error) {
-        console.error('Error al insertar el empleado:', employee, error.message);
+        console.error('Error al insertar el empleado:', employee.email, error.message);
       }
     }
 
-    // Cerrar la conexión
     await clientConnection.close();
-
-    res.status(201).json({ message: 'Empleados procesados.', data: results });
+    res.status(201).json({ message: 'Empleados procesados correctamente.', data: results });
   } catch (error) {
-    console.error('Error al crear empleados:', error.message);
+    console.error('Error general al crear empleados:', error.message);
     res.status(500).json({ error: 'Error al crear empleados' });
   }
 });
@@ -908,7 +973,7 @@ router.put('/editEmployees', async (req, res) => {
 
 router.delete('/deleteEmployees', async (req, res) => {
   try {
-    console.log('Entrando a la ruta de eliminar empleados',req.body);
+    console.log('Entrando a la ruta de eliminar empleados', req.body);
     const { databaseName, id } = req.body;
 
     // Validar que los datos requeridos estén presentes
@@ -921,25 +986,25 @@ router.delete('/deleteEmployees', async (req, res) => {
       dbName: `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`
     });
 
-    
-   
+
+
     const Employee = clientConnection.model('employees', employeeSchema);
 
     // Eliminar empleados uno por uno
     const results = [];
- 
-      try {
-        const deletedEmployee = await Employee.findByIdAndDelete(id._id);
-        if (deletedEmployee) {
-          
-          console.log('Empleado eliminado:', deletedEmployee);
-        } else {
-          console.log('Empleado no encontrado:', id);
-        }
-      } catch (error) {
-        console.error('Error al eliminar el empleado:', id, error.message);
+
+    try {
+      const deletedEmployee = await Employee.findByIdAndDelete(id._id);
+      if (deletedEmployee) {
+
+        console.log('Empleado eliminado:', deletedEmployee);
+      } else {
+        console.log('Empleado no encontrado:', id);
       }
-    
+    } catch (error) {
+      console.error('Error al eliminar el empleado:', id, error.message);
+    }
+
 
     // Cerrar la conexión
     await clientConnection.close();
@@ -952,13 +1017,145 @@ router.delete('/deleteEmployees', async (req, res) => {
 });
 
 
+router.post('/auth/registerClient', async (req, res) => {
+  try {
+    const { databaseName, cliente } = req.body;
+
+    if (!databaseName || !cliente || !cliente.email || !cliente.password) {
+      return res.status(400).json({ error: 'Faltan datos del cliente o de la base de datos.' });
+    }
+
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, { dbName });
+
+    const Cliente = clientConnection.model('clientes', clients);
+    const User = clientConnection.model('usuarios', staff);
+
+    const existe = await Cliente.findOne({ email: cliente.email });
+    if (existe) {
+      await clientConnection.close();
+      return res.status(400).json({ error: 'Ya existe un cliente con ese email.' });
+    }
+
+    const newClient = new Cliente(cliente);
+    const savedClient = await newClient.save();
+
+    const hashedPassword = await bcrypt.hash(cliente.password, SALT_ROUNDS);
+
+    let user = await User.findOne({ email: cliente.email });
+
+    if (user) {
+      user.ref_cliente = savedClient._id;
+      user.password = hashedPassword;
+      await user.save();
+    } else {
+      await User.create({
+        email: cliente.email,
+        password: hashedPassword,
+        ref_empleado: null,
+        ref_cliente: savedClient._id,
+        sucursal: dbName
+      });
+    }
+
+    await clientConnection.close();
+
+    // Respuesta limpia
+    res.status(201).json({
+      message: 'Cliente registrado correctamente.',
+      data: {
+        _id: savedClient._id,
+        nombre: savedClient.nombre,
+        direccion: savedClient.direccion || '',
+        telefono: savedClient.telefono || '',
+        email: savedClient.email
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al registrar cliente:', error.message);
+    res.status(500).json({ error: 'Error al registrar cliente.' });
+  }
+});
+
+
+router.post('/auth/login', async (req, res) => {
+  try {
+    const { email, password, databaseName } = req.body;
+
+    if (!email || !password || !databaseName) {
+      return res.status(400).json({ error: 'Email, contraseña y base de datos son requeridos.' });
+    }
+
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
+    const db = await mongoose.createConnection(process.env.HEII_MONGO_URI, { dbName });
+
+    const User = db.model('usuarios', staff);
+    const Cliente = db.model('clientes', clients);
+    const Empleado = db.model('employees', employeeSchema);
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      await db.close();
+      return res.status(401).json({ error: 'Credenciales inválidas.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      await db.close();
+      return res.status(401).json({ error: 'Credenciales inválidas.' });
+    }
+
+    let tipo = '';
+    const responseData = { email };
+
+    if (user.ref_cliente) {
+      const cliente = await Cliente.findById(user.ref_cliente).lean();
+      if (cliente) {
+        tipo += 'C';
+        responseData.cliente = {
+          _id: cliente._id,
+          nombre: cliente.nombre,
+          direccion: cliente.direccion || '',
+          telefono: cliente.telefono || '',
+          email: cliente.email,
+          rol: ""
+        };
+      }
+    }
+
+    if (user.ref_empleado) {
+      const empleado = await Empleado.findById(user.ref_empleado).lean();
+      if (empleado) {
+        tipo += 'E';
+        responseData.empleado = {
+          _id: empleado._id,
+          nombre: empleado.nombre,
+          direccion: empleado.direccion || '',
+          telefono: empleado.telefono || '',
+          email: empleado.email,
+          rol: empleado.cargo.nombre ,
+        };
+      }
+    }
+
+    responseData.tipo = tipo;
+
+    await db.close();
+    return res.status(200).json({ message: 'Login exitoso', data: responseData });
+
+  } catch (error) {
+    console.error('Error en login:', error.message);
+    return res.status(500).json({ error: 'Error al procesar login.' });
+  }
+});
 
 
 
 router.get('/getLocationsByPath', async (req, res) => {
   try {
     const { path } = req.query;
-console.log(path)
+    console.log(path)
     // Validar que el path esté presente
     if (!path) {
       return res.status(400).json({ error: 'El path es obligatorio.' });
@@ -983,7 +1180,7 @@ console.log(path)
       headerImageUrl: location.headerimage ? `data:image/png;base64,${location.headerimage.toString('base64')}` : null,
       email: user.email, // Agregar el email del usuario
     }));
-console.log(locations)
+
     // Validar si hay locaciones
     if (locations.length === 0) {
       return res.status(404).json({ error: 'El usuario no tiene locaciones registradas.' });
