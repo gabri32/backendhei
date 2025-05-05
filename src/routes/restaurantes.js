@@ -7,6 +7,8 @@ const Restaurant = require('../models/restaurantes');
 const Role = require('../models/roles');
 const employeeSchema = require('../models/employees'); // Importar el esquema de empleados
 const categoriaSchema = require('../models/categoria');
+const Pedido = require('../models/orders');
+const  sendPedidoConfirmacion  = require('../utils/sendPedidoConfirmacion');
 require('dotenv').config();
 const Joi = require('joi');
 const multer = require('multer');
@@ -928,16 +930,7 @@ router.put('/editEmployees', async (req, res) => {
     });
 
     // Crear el modelo `Employee` en la base de datos específica
-    const employeeSchema = new mongoose.Schema({
-      nombre: { type: String, required: true },
-      edad: { type: Number, required: true },
-      telefono: { type: String, required: true },
-      direccion: { type: String, required: true },
-      cargo: {
-        nombre: { type: String, required: true },
-        descripcion: { type: String, required: false }
-      }
-    });
+    const employeeSchema =employeeSchema
     const Employee = clientConnection.model('employees', employeeSchema);
 
     // Actualizar empleados uno por uno
@@ -975,7 +968,6 @@ router.delete('/deleteEmployees', async (req, res) => {
   try {
     console.log('Entrando a la ruta de eliminar empleados', req.body);
     const { databaseName, id } = req.body;
-
     // Validar que los datos requeridos estén presentes
     if (!databaseName || !id._id) {
       return res.status(400).json({ error: 'El nombre de la base de datos y un array de IDs de empleados son obligatorios.' });
@@ -987,17 +979,21 @@ router.delete('/deleteEmployees', async (req, res) => {
     });
 
 
-
+    const User = clientConnection.model('usuarios', staff);
     const Employee = clientConnection.model('employees', employeeSchema);
 
     // Eliminar empleados uno por uno
     const results = [];
 
     try {
+      const deletedUser = await User.findOneAndDelete({ ref_empleado: id._id });
+      if (deletedUser) {
       const deletedEmployee = await Employee.findByIdAndDelete(id._id);
+      
       if (deletedEmployee) {
 
         console.log('Empleado eliminado:', deletedEmployee);
+      }
       } else {
         console.log('Empleado no encontrado:', id);
       }
@@ -1135,6 +1131,7 @@ router.post('/auth/login', async (req, res) => {
           telefono: empleado.telefono || '',
           email: empleado.email,
           rol: empleado.cargo.nombre ,
+          permisos: empleado.permisos || [],
         };
       }
     }
@@ -1150,7 +1147,133 @@ router.post('/auth/login', async (req, res) => {
   }
 });
 
+router.get('/roles', async (req, res) => {
+  try {
+    const { databaseName } = req.query;
 
+    if (!databaseName) {
+      return res.status(400).json({ error: 'El nombre de la base de datos es obligatorio.' });
+    }
+
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName
+    });
+
+    const Role = clientConnection.model('Role', require('../models/roles'));
+
+    const roles = await Role.find({}).lean();
+    await clientConnection.close();
+
+    res.status(200).json({ message: 'Roles obtenidos exitosamente.', data: roles });
+  } catch (error) {
+    console.error('Error al obtener roles:', error.message);
+    res.status(500).json({ error: 'Error al obtener roles' });
+  }
+})
+
+router.post('/crearOrders', async (req, res) => {
+  try {
+    const { dbName, ...pedidoData } = req.body;
+
+    // Validar que se reciba el nombre de la base de datos
+    if (!dbName) {
+      return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
+    }
+
+    // Conectar a la base de datos específica
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    // Crear el modelo para la colección `orders`
+    const PedidoModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
+
+    // Crear el pedido en la base de datos
+    const nuevoPedido = await PedidoModel.create(pedidoData);
+
+    // Si el tipo es a domicilio y hay email, se envía confirmación
+    if (nuevoPedido.tipo === 'a_domicilio' && nuevoPedido.email) {
+      await sendPedidoConfirmacion(nuevoPedido.email, nuevoPedido);
+    }
+
+    // Cerrar la conexión
+    await clientConnection.close();
+   const { io } = require('../index'); 
+ io.emit('nuevo_pedido', nuevoPedido); // Emitir el evento a todos los clientes conectados
+    // Responder al cliente
+    res.status(201).json({ message: 'Pedido creado exitosamente.', data: nuevoPedido });
+  } catch (error) {
+    console.error('Error al crear pedido:', error.message);
+    res.status(500).json({ error: 'Error al crear el pedido.' });
+  }
+});
+
+
+router.get('/getOrdersByEstado', async (req, res) => {
+  const { estado, dbName } = req.query;
+
+  // Validar que los parámetros requeridos estén presentes
+  if (!estado || !dbName) {
+    return res.status(400).json({ error: 'Parámetros requeridos: estado, dbName' });
+  }
+
+  try {
+    // Generar el nombre de la base de datos
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+
+    // Conectar a la base de datos específica
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    // Crear un modelo dinámico para la colección `orders`
+    const OrderModel = clientConnection.model(
+      'orders',
+      new mongoose.Schema({}, { strict: false }) // Esquema flexible
+    );
+
+    // Consultar los pedidos por estado y ordenarlos por fecha de creación
+    const pedidos = await OrderModel.find({ estado }).sort({ createdAt: -1 }).lean();
+
+    // Cerrar la conexión
+    await clientConnection.close();
+
+    // Responder con los pedidos obtenidos
+    res.status(200).json({ message: 'Pedidos obtenidos exitosamente.', data: pedidos });
+  } catch (error) {
+    console.error('❌ Error al obtener pedidos por estado:', error.message);
+    res.status(500).json({ error: 'Error al obtener pedidos.' });
+  }
+});
+
+// PATCH /restaurantes/updateOrderEstado/:id  Body: { estado, dbName }
+router.patch('/updateOrderEstado/:id', async (req, res) => {
+  const { id } = req.params;
+  const { estado, dbName } = req.body;
+
+  if (!estado || !dbName) {
+    return res.status(400).json({ error: 'Parámetros requeridos: estado, dbName' });
+  }
+
+  try {
+    const db = await getDB(dbName);
+    const result = await db.collection('orders').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { estado } }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado o sin cambios' });
+    }
+
+    res.json({ message: 'Estado actualizado correctamente' });
+  } catch (error) {
+    console.error('❌ Error al actualizar estado del pedido:', error);
+    res.status(500).json({ error: 'Error al actualizar pedido' });
+  }
+});
 
 router.get('/getLocationsByPath', async (req, res) => {
   try {

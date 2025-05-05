@@ -11,6 +11,10 @@ const employeeSchema = new mongoose.Schema({
   cargo: {
     nombre: { type: String, required: true },
     descripcion: { type: String, required: false }
+  },
+  permisos: {
+    type: [String],
+    default: []
   }
 });
 
