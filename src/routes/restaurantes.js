@@ -50,6 +50,9 @@ const userSchema = new mongoose.Schema({
 const Users = mongoose.model('users', userSchema);
 const staff = require('../models/usuarios');
 const clients = require('../models/client');
+const { getIO } = require('../utils/socket'); // Ajusta la ruta si es necesario
+
+
 router.post('/login', async (req, res) => {
   try {
 
@@ -1176,33 +1179,34 @@ router.post('/crearOrders', async (req, res) => {
   try {
     const { dbName, ...pedidoData } = req.body;
 
-    // Validar que se reciba el nombre de la base de datos
     if (!dbName) {
       return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
     }
 
-    // Conectar a la base de datos específica
     const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
     const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
       dbName: databaseName,
     });
 
-    // Crear el modelo para la colección `orders`
     const PedidoModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
-
-    // Crear el pedido en la base de datos
     const nuevoPedido = await PedidoModel.create(pedidoData);
 
-    // Si el tipo es a domicilio y hay email, se envía confirmación
     if (nuevoPedido.tipo === 'a_domicilio' && nuevoPedido.email) {
       await sendPedidoConfirmacion(nuevoPedido.email, nuevoPedido);
     }
 
-    // Cerrar la conexión
     await clientConnection.close();
-   const { io } = require('../index'); 
- io.emit('nuevo_pedido', nuevoPedido); // Emitir el evento a todos los clientes conectados
-    // Responder al cliente
+
+    // ✅ Emitir solo si el estado es 'enviado'
+    // if (nuevoPedido.estado === 'enviado') {
+    //   const room = dbName.toLowerCase().replace(/\s+/g, '_');
+    //   console.log("databaseName", room)
+
+    //   getIO().to(room).emit('nuevo_pedido', nuevoPedido);
+    // }
+    
+    
+
     res.status(201).json({ message: 'Pedido creado exitosamente.', data: nuevoPedido });
   } catch (error) {
     console.error('Error al crear pedido:', error.message);
@@ -1248,30 +1252,209 @@ router.get('/getOrdersByEstado', async (req, res) => {
   }
 });
 
-// PATCH /restaurantes/updateOrderEstado/:id  Body: { estado, dbName }
 router.patch('/updateOrderEstado/:id', async (req, res) => {
   const { id } = req.params;
   const { estado, dbName } = req.body;
 
+  // Validar que los parámetros requeridos estén presentes
   if (!estado || !dbName) {
     return res.status(400).json({ error: 'Parámetros requeridos: estado, dbName' });
   }
 
   try {
-    const db = await getDB(dbName);
-    const result = await db.collection('orders').updateOne(
-      { _id: new ObjectId(id) },
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+
+    // Conectar a la base de datos específica
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    // Convertir el ID a ObjectId
+    const objectId = new mongoose.Types.ObjectId(id);
+
+    // Actualizar el estado del pedido
+    const result = await clientConnection.collection('orders').updateOne(
+      { _id: objectId },
       { $set: { estado } }
     );
 
+    // Verificar si se realizó algún cambio
     if (result.modifiedCount === 0) {
+      await clientConnection.close();
       return res.status(404).json({ error: 'Pedido no encontrado o sin cambios' });
     }
 
+    // Cerrar la conexión
+    await clientConnection.close();
+
     res.json({ message: 'Estado actualizado correctamente' });
   } catch (error) {
-    console.error('❌ Error al actualizar estado del pedido:', error);
+    console.error('❌ Error al actualizar estado del pedido:', error.message);
     res.status(500).json({ error: 'Error al actualizar pedido' });
+  }
+});
+router.get('/orders', async (req, res) => {
+  const { dbName } = req.query;
+console.log("entroooooooooooooooooooo")
+  if (!dbName) {
+    return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
+  }
+
+  try {
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    const OrderModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
+
+    const pedidos = await OrderModel.find({})
+      .sort({ estado: 1, horaCreacion: -1 }) // Ordenar por estado y luego por fecha de creación
+      .lean();
+
+    await clientConnection.close();
+
+    res.status(200).json({ message: 'Pedidos obtenidos exitosamente.', data: pedidos });
+  } catch (error) {
+    console.error('Error al obtener pedidos:', error.message);
+    res.status(500).json({ error: 'Error al obtener pedidos.' });
+  }
+});
+router.get('/orders/entregados', async (req, res) => {
+  const { dbName } = req.query;
+
+  if (!dbName) {
+    return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
+  }
+
+  try {
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    const OrderModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
+
+    const pedidosEntregados = await OrderModel.find({ estado: 'entregado' })
+      .sort({ horaCreacion: -1 }) // Ordenar por fecha de creación
+      .lean();
+
+    await clientConnection.close();
+
+    res.status(200).json({ message: 'Pedidos entregados obtenidos exitosamente.', data: pedidosEntregados });
+  } catch (error) {
+    console.error('Error al obtener pedidos entregados:', error.message);
+    res.status(500).json({ error: 'Error al obtener pedidos entregados.' });
+  }
+});
+router.patch('/orders/:id/cancelar', async (req, res) => {
+  const { id } = req.params;
+  const { dbName } = req.body;
+
+  if (!dbName) {
+    return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
+  }
+
+  try {
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    const OrderModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
+
+    const pedidoCancelado = await OrderModel.findByIdAndUpdate(
+      id,
+      { estado: 'cancelado' },
+      { new: true } // Retornar el documento actualizado
+    );
+
+    await clientConnection.close();
+
+    if (!pedidoCancelado) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    res.status(200).json({ message: 'Pedido cancelado exitosamente.', data: pedidoCancelado });
+  } catch (error) {
+    console.error('Error al cancelar pedido:', error.message);
+    res.status(500).json({ error: 'Error al cancelar pedido.' });
+  }
+});
+router.patch('/orders/:id/facturar', async (req, res) => {
+  const { id } = req.params;
+  const { dbName } = req.body;
+
+  if (!dbName) {
+    return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
+  }
+
+  try {
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    const OrderModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
+
+    const pedidoFacturado = await OrderModel.findByIdAndUpdate(
+      id,
+      { estado: 'facturado' },
+      { new: true } // Retornar el documento actualizado
+    );
+
+    await clientConnection.close();
+
+    if (!pedidoFacturado) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    res.status(200).json({ message: 'Pedido marcado como facturado exitosamente.', data: pedidoFacturado });
+  } catch (error) {
+    console.error('Error al facturar pedido:', error.message);
+    res.status(500).json({ error: 'Error al facturar pedido.' });
+  }
+});
+router.patch('/orders/:id/entregar', async (req, res) => {
+  const { id } = req.params;
+  const { dbName } = req.body;
+
+  // Validar que los parámetros requeridos estén presentes
+  if (!dbName) {
+    return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
+  }
+
+  try {
+    // Generar el nombre de la base de datos
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+
+    // Conectar a la base de datos específica
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    // Crear un modelo dinámico para la colección `orders`
+    const OrderModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
+
+    // Actualizar el estado del pedido a "entregado"
+    const pedidoEntregado = await OrderModel.findByIdAndUpdate(
+      id,
+      { estado: 'entregado' },
+      { new: true } // Retornar el documento actualizado
+    );
+
+    // Cerrar la conexión
+    await clientConnection.close();
+
+    // Verificar si el pedido fue encontrado y actualizado
+    if (!pedidoEntregado) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    res.status(200).json({ message: 'Pedido marcado como entregado exitosamente.', data: pedidoEntregado });
+  } catch (error) {
+    console.error('Error al marcar pedido como entregado:', error.message);
+    res.status(500).json({ error: 'Error al marcar pedido como entregado.' });
   }
 });
 
@@ -1321,6 +1504,38 @@ router.get('/getLocationsByPath', async (req, res) => {
   }
 });
 
+router.get('/clientes', async (req, res) => {
+  const { dbName } = req.query;
 
+  // Validar que el parámetro dbName esté presente
+  if (!dbName) {
+    return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
+  }
+
+  try {
+    // Generar el nombre de la base de datos
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+
+    // Conectar a la base de datos específica
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    // Crear un modelo dinámico para la colección `clientes`
+    const ClienteModel = clientConnection.model('clientes', new mongoose.Schema({}, { strict: false }));
+
+    // Obtener todos los clientes
+    const clientes = await ClienteModel.find({}).lean();
+
+    // Cerrar la conexión
+    await clientConnection.close();
+
+    // Responder con los clientes obtenidos
+    res.status(200).json({ message: 'Clientes obtenidos exitosamente.', data: clientes });
+  } catch (error) {
+    console.error('Error al obtener clientes:', error.message);
+    res.status(500).json({ error: 'Error al obtener clientes.' });
+  }
+});
 
 module.exports = router;

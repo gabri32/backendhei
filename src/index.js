@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const http = require('http');
 const server = http.createServer(app);
-const { Server } = require('socket.io');
+const socket = require('./utils/socket'); // Importar el módulo de socket.io
 
 // 🔌 Conexión a MongoDB
 const connectToDatabase = require('./conectiondb');
@@ -20,30 +20,14 @@ app.use((req, res, next) => {
   if (allowedOrigins.includes(origin)) {
     res.header("Access-Control-Allow-Origin", origin);
   }
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS,PATCH");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
 
 // 🧠 Configurar socket.io
-const io = new Server(server, {
-  cors: {
-    origin: allowedOrigins,
-    methods: ["GET", "POST"]
-  }
-});
-
-io.on('connection', (socket) => {
-  console.log('🟢 Socket conectado:', socket.id);
-
-  socket.on('disconnect', () => {
-    console.log('🔴 Socket desconectado:', socket.id);
-  });
-});
-
-// Exportar socket para usar en otras rutas
-module.exports.io = io;
+socket.init(server, allowedOrigins);
 
 // 📦 Middleware JSON
 app.use(express.json({ limit: '5mb' }));
