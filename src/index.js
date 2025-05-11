@@ -14,7 +14,7 @@ const membershipRoutes = require('./routes/membershipt');
 const chatbotRoutes = require('./routes/chatbotroutes');
 
 // 🌍 CORS personalizado
-const allowedOrigins = ["http://localhost:5173"];
+const allowedOrigins = ["http://localhost:5173","https://backendhei-5rbz.onrender.com"];
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
