@@ -1,4 +1,6 @@
 const express = require('express');
+const ThermalPrinter = require("node-thermal-printer").printer;
+const Types = require("node-thermal-printer").types;
 const router = express.Router();
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
@@ -1189,7 +1191,7 @@ router.post('/crearOrders', async (req, res) => {
     });
 
     const PedidoModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
-    const nuevoPedido = await PedidoModel.create(pedidoData);
+    const nuevoPedido = await PedidoModel.create({...pedidoData,  impreso: false });
 
     if (nuevoPedido.tipo === 'a_domicilio' && nuevoPedido.email) {
       await sendPedidoConfirmacion(nuevoPedido.email, nuevoPedido);
@@ -1197,14 +1199,7 @@ router.post('/crearOrders', async (req, res) => {
 
     await clientConnection.close();
 
-    // ✅ Emitir solo si el estado es 'enviado'
-    // if (nuevoPedido.estado === 'enviado') {
-    //   const room = dbName.toLowerCase().replace(/\s+/g, '_');
-    //   console.log("databaseName", room)
 
-    //   getIO().to(room).emit('nuevo_pedido', nuevoPedido);
-    // }
-    
     
 
     res.status(201).json({ message: 'Pedido creado exitosamente.', data: nuevoPedido });
@@ -1213,7 +1208,58 @@ router.post('/crearOrders', async (req, res) => {
     res.status(500).json({ error: 'Error al crear el pedido.' });
   }
 });
+router.get('/:dbName/ultimos-pedidos', async (req, res) => {
+  try {
+    const { dbName } = req.params;
 
+    if (!dbName) {
+      return res.status(400).json({ error: 'Falta el nombre de la base de datos (dbName).' });
+    }
+
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    const PedidoModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
+    
+    const pedidos = await PedidoModel.find({ estado: 'enviado', impreso: { $ne: true } }).limit(10);
+    
+    await clientConnection.close();
+
+    res.json(pedidos);
+  } catch (error) {
+    console.error('Error al obtener pedidos:', error.message);
+    res.status(500).json({ error: 'Error al obtener pedidos.' });
+  }
+});
+router.patch('/:dbName/marcar-impreso/:id', async (req, res) => {
+  try {
+    const { dbName, id } = req.params;
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    const PedidoModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
+
+    const actualizado = await PedidoModel.findByIdAndUpdate(id, { impreso: true }, { new: true });
+
+    await clientConnection.close();
+
+    if (!actualizado) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    res.json({ message: 'Pedido marcado como impreso.', data: actualizado });
+  } catch (error) {
+    console.error('Error al actualizar pedido:', error.message);
+    res.status(500).json({ error: 'Error al actualizar el pedido.' });
+  }
+});
+
+ 
 
 router.get('/getOrdersByEstado', async (req, res) => {
   const { estado, dbName } = req.query;

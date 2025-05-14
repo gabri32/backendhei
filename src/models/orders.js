@@ -24,6 +24,8 @@ const pedidoSchema = new mongoose.Schema({
   productos: { type: [productoSchema], required: true },
   creadoPor: { type: String, required: true },
   horaCreacion: { type: Date, default: Date.now },
+  impreso: { type: Boolean, default: false },
+  horaImpresion: { type: Date },
 });
 
 
