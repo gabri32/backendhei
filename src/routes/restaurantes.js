@@ -1584,7 +1584,7 @@ router.get('/clientes', async (req, res) => {
   }
 });
 
-// ...existing code...
+
 
 router.delete('/clientes/:id', async (req, res) => {
   const { id } = req.params;
@@ -1617,7 +1617,7 @@ router.delete('/clientes/:id', async (req, res) => {
   }
 });
 
-// ...existing code...
+
 
 
 module.exports = router;
