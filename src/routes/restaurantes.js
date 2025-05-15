@@ -1584,4 +1584,40 @@ router.get('/clientes', async (req, res) => {
   }
 });
 
+// ...existing code...
+
+router.delete('/clientes/:id', async (req, res) => {
+  const { id } = req.params;
+  const { dbName } = req.query;
+
+  if (!dbName || !id) {
+    return res.status(400).json({ error: 'El nombre de la base de datos (dbName) y el id del cliente son obligatorios.' });
+  }
+
+  try {
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    const ClienteModel = clientConnection.model('clientes', new mongoose.Schema({}, { strict: false }));
+
+    const deleted = await ClienteModel.findByIdAndDelete(id);
+
+    await clientConnection.close();
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Cliente no encontrado.' });
+    }
+
+    res.status(200).json({ message: 'Cliente eliminado exitosamente.' });
+  } catch (error) {
+    console.error('Error al eliminar cliente:', error.message);
+    res.status(500).json({ error: 'Error al eliminar cliente.' });
+  }
+});
+
+// ...existing code...
+
+
 module.exports = router;
