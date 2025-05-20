@@ -771,9 +771,10 @@ router.put('/updateRole', async (req, res) => {
       return res.status(400).json({ error: 'El nombre de la base de datos, el ID del rol y los datos a actualizar son obligatorios.' });
     }
 
-    // Conectar a la base de datos específica
+    // Normalizar el nombre de la base de datos
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
     const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-      dbName: `location_${databaseName}`
+      dbName
     });
 
     // Crear el modelo `Role` en la base de datos específica
