@@ -35,32 +35,27 @@ function detectarConfirmacion(texto) {
 function generarPromptDesdeDocumento(doc) {
   const categorias = doc.categorias
     .filter(c => c.active)
-    .map(cat => ({
-      id: cat._id,
-      nombre: cat.name
-    }));
+    .map(cat => `- ${cat.name}`)
+    .join('\n');
 
   const productos = doc.productos
     .filter(p => p.active)
-    .map(p => ({
-      id: p._id,
-      nombre: p.nombre,
-      descripcion: p.descripcion,
-      precio: p.precio,
-      categorias: p.categoryIds,
-      subcategorias: p.subcategoryIds
-    }));
+    .map(p => {
+      const precio = typeof p.precio === 'number' ? `$${p.precio.toFixed(0)}` : p.precio;
+      return `🍽️ *${p.nombre}* - ${precio}\n_${p.descripcion}_`;
+    })
+    .join('\n\n');
 
   const parametros = doc.parametros?.map(p => p.titulo) || [];
 
   return `
 Eres un asistente ${doc.tono || 'amigable'} de un restaurante. Tu tarea es mostrar productos, responder dudas sobre ellos, tomar pedidos, confirmar, y guiar al usuario amablemente.
 
-📦 Categorías disponibles (JSON):
-${JSON.stringify(categorias, null, 2)}
+📦 *Categorías disponibles:*
+${categorias}
 
-🍽️ Productos disponibles (JSON):
-${JSON.stringify(productos, null, 2)}
+🍽️ *Productos disponibles:*
+${productos}
 
 ✅ Frase de confirmación del pedido:
 "${doc.frasesConfirmacion}"
@@ -74,6 +69,8 @@ ${JSON.stringify(productos, null, 2)}
 `.trim();
 }
 
+
+
 const chatBotHandler = async (req, res) => {
   const { mensaje, mensajeUsuario, dbName, userId, sessionId, carrito } = req.body;
 
@@ -82,6 +79,7 @@ const chatBotHandler = async (req, res) => {
       error: "Faltan campos requeridos: mensaje, mensajeUsuario, dbName, userId o sessionId."
     });
   }
+console.log("🛒 Carrito recibido:", carrito);
 
   try {
     if (!promptsCache[dbName]) {
@@ -90,10 +88,12 @@ const chatBotHandler = async (req, res) => {
       const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
         dbName: databaseName,
       });
-  
+
       const Prompt = getPromptModel(clientConnection);
       const promptDoc = await Prompt.findOne({});
-      if (!promptDoc) return res.status(500).json({ error: "No se encontró un prompt en la base de datos." });
+      if (!promptDoc) {
+        return res.status(500).json({ error: "No se encontró un prompt en la base de datos." });
+      }
 
       promptsCache[dbName] = {
         promptDoc,
@@ -105,11 +105,34 @@ const chatBotHandler = async (req, res) => {
     const esConfirmacion = detectarConfirmacion(mensajeUsuario);
 
     let mensajeResumen = null;
+    let redirigirACarrito = false;
 
     if (Array.isArray(carrito) && carrito.length > 0 && esConfirmacion) {
       mensajeResumen = generarResumen(carrito, promptDoc.frasesConfirmacion);
+      redirigirACarrito = true;
     }
 
+    // ✅ Función para formatear carrito para el frontend
+    function formatearCarritoParaFrontend(carrito) {
+      return carrito.map(p => ({
+        itemId: p.itemId || p.id || p._id,
+        nombre: p.nombre,
+        precio: p.precio,
+        imagen: p.imagen || null,
+        numberItems: p.numberItems || 1
+      }));
+    }
+
+    // ✅ Si el usuario ya confirmó y hay productos, devolvemos respuesta sin llamar a OpenAI
+    if (redirigirACarrito) {
+      return res.json({
+        respuesta: "Perfecto, tu pedido está confirmado. Presiona el botón para finalizar 🛒",
+        redirigirACarrito: true,
+        carrito: formatearCarritoParaFrontend(carrito)
+      });
+    }
+
+    // 🧠 Si no es confirmación, continúa con OpenAI
     const mensajes = [
       { role: 'system', content: promptTexto },
       { role: 'user', content: mensajeUsuario }
@@ -133,12 +156,17 @@ const chatBotHandler = async (req, res) => {
       }
     );
 
-    res.json({ respuesta: respuesta.data.choices[0].message.content });
+    res.json({
+      respuesta: respuesta.data.choices[0].message.content,
+      redirigirACarrito: false
+    });
+
   } catch (error) {
     console.error('Error en el chatbot:', error.response?.data || error.message);
     res.status(500).json({ error: 'Error procesando tu mensaje.' });
   }
 };
+
 const createChatbot = async (req, res) => {
   try {
     console.log("entraaaaaaaaa",req.body)   

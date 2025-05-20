@@ -553,9 +553,10 @@ router.post('/categorias/create', upload.single('imagen'), async (req, res) => {
     };
 
     // Conexión dinámica a base de datos
-    const client = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-      dbName: 'location_' + databaseName,
-    });
+ const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
+const client = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+  dbName,
+});
 
     // Validación de existencia previa
     const existe = await client.collection('categorias').findOne({ name });
@@ -1185,13 +1186,19 @@ router.post('/crearOrders', async (req, res) => {
       return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
     }
 
-    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+    const databaseName = `location_${dbName.toLowerCase().replace(/\\s+/g, '_')}`;
     const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
       dbName: databaseName,
     });
 
     const PedidoModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
-    const nuevoPedido = await PedidoModel.create({...pedidoData,  impreso: false });
+    const nuevoPedido = await PedidoModel.create({
+      ...pedidoData,
+      impreso: false,
+      productosEditados: [],
+      editado: false,
+      ...(pedidoData.tipo === 'para_llevar' && pedidoData.nombreCliente ? { nombreCliente: pedidoData.nombreCliente } : {})
+    });
 
     if (nuevoPedido.tipo === 'a_domicilio' && nuevoPedido.email) {
       await sendPedidoConfirmacion(nuevoPedido.email, nuevoPedido);
@@ -1199,15 +1206,57 @@ router.post('/crearOrders', async (req, res) => {
 
     await clientConnection.close();
 
-
-    
-
     res.status(201).json({ message: 'Pedido creado exitosamente.', data: nuevoPedido });
   } catch (error) {
     console.error('Error al crear pedido:', error.message);
     res.status(500).json({ error: 'Error al crear el pedido.' });
   }
 });
+router.patch('/agregarProductosPedido/:id', async (req, res) => {
+  const { dbName, productosNuevos } = req.body;
+  const { id } = req.params;
+
+  if (!dbName || !productosNuevos || !Array.isArray(productosNuevos)) {
+    return res.status(400).json({ error: 'Faltan datos requeridos o formato inválido.' });
+  }
+
+  const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+  const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+    dbName: databaseName,
+  });
+
+  try {
+  const PedidoModel = clientConnection.model('orders', Pedido.schema);
+    const pedido = await PedidoModel.findById(id);
+console.log('Pedido encontrado:', pedido);
+    if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+    if (pedido.estado !== 'enviado') return res.status(400).json({ error: 'Solo se pueden editar pedidos en estado enviado.' });
+
+    // Inicializar si no existe
+    if (!Array.isArray(pedido.productosagregados)) {
+      pedido.productosagregados = [];
+    }
+if (pedido.productosagregados.length > 0) {
+  // Si ya hay productos editados, agregar los nuevos a la lista existente
+  pedido.productosagregados.push(...productosNuevos);
+} else {
+    pedido.productosagregados=productosNuevos;
+    
+}
+    pedido.editado = true;
+    pedido.markModified('productosEditados'); 
+
+    await pedido.save();
+
+    res.json({ message: 'Productos agregados correctamente', data: pedido });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al modificar el pedido.' });
+  } finally {
+    await clientConnection.close();
+  }
+});
+
 router.get('/:dbName/ultimos-pedidos', async (req, res) => {
   try {
     const { dbName } = req.params;

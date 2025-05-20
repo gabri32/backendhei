@@ -22,8 +22,11 @@ const pedidoSchema = new mongoose.Schema({
   direccion: { type: String, required: function() { return this.tipo === 'a_domicilio'; } },
   telefono: { type: String, required: function() { return this.tipo === 'a_domicilio'; } },
   productos: { type: [productoSchema], required: true },
+   productosagregados: { type: [productoSchema], required: true },
+   editado: { type: Boolean, default: false },
   creadoPor: { type: String, required: true },
   horaCreacion: { type: Date, default: Date.now },
+
   impreso: { type: Boolean, default: false },
   horaImpresion: { type: Date },
 });
