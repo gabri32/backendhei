@@ -448,10 +448,10 @@ router.post('/productos/upsert', upload.single('imagen'), async (req, res) => {
     const parsedCategories = JSON.parse(categoryIds);
 
     // Conectar a la base de datos específica
-    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-      dbName: "location_" + databaseName
-    });
-
+   const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
+const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+  dbName
+});
     const collection = clientConnection.collection('productos');
 
     const productData = {
