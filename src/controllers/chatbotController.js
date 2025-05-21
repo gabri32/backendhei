@@ -155,11 +155,24 @@ console.log("🛒 Carrito recibido:", carrito);
         }
       }
     );
+// Detectar productos mencionados en la respuesta
+const textoRespuesta = respuesta.data.choices[0].message.content;
+const productos = promptDoc.productos || [];
+const nombres = productos.map(p => p.nombre.toLowerCase());
+const productosSugeridos = productos
+  .filter(p => {
+    const nombre = p.nombre.toLowerCase();
+    const textoNormalizado = textoRespuesta.toLowerCase().normalize("NFD").replace(/[^a-z0-9 ]/gi, "");
+    return textoNormalizado.includes(nombre.replace(/\s+/g, ''));
+  })
+  .map(p => p._id);
 
-    res.json({
-      respuesta: respuesta.data.choices[0].message.content,
-      redirigirACarrito: false
-    });
+   return res.json({
+  respuesta: textoRespuesta,
+  redirigirACarrito: false,
+  productosSugeridos
+});
+
 
   } catch (error) {
     console.error('Error en el chatbot:', error.response?.data || error.message);
@@ -168,8 +181,10 @@ console.log("🛒 Carrito recibido:", carrito);
 };
 
 const createChatbot = async (req, res) => {
+  let clientConnection;
   try {
-    console.log("entraaaaaaaaa",req.body)   
+    console.log("🟢 Datos recibidos en createChatbot:", req.body);
+
     const {
       nombreAsistente,
       categorias,
@@ -182,21 +197,38 @@ const createChatbot = async (req, res) => {
       dbName,
     } = req.body;
 
-
     if (!nombreAsistente) {
       return res.status(400).json({ error: 'El nombre del asistente es obligatorio.' });
     }
 
-    // Conectar a la base de datos dinámica
+    // Limpiar imageUrl de categorias y imagen de productos
+    const categoriasSinImagen = Array.isArray(categorias)
+      ? categorias.map(cat => {
+          const { imageUrl, ...rest } = cat;
+          return rest;
+        })
+      : [];
+
+    const productosSinImagen = Array.isArray(productos)
+      ? productos.map(prod => {
+          const { imagen, ...rest } = prod;
+          return rest;
+        })
+      : [];
+
+    // Normalizar y loggear el nombre de la base de datos
     const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
-    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+    console.log("🟢 Conectando a base de datos:", databaseName);
+
+    clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
       dbName: databaseName,
     });
 
     // Crear el modelo para la colección `prompts`
     const Prompt = clientConnection.model(
-      'Prompt',
+      'prompt',
       new mongoose.Schema({
+        nombreAsistente: String,
         categorias: Array,
         frasesConfirmacion: String,
         instruccionesCorreccion: String,
@@ -209,13 +241,14 @@ const createChatbot = async (req, res) => {
       'prompt'
     );
 
-    // Crear el documento con los datos recibidos
+    // Crear el documento con los datos recibidos (sin imágenes)
     const newPrompt = new Prompt({
-      categorias,
+      nombreAsistente,
+      categorias: categoriasSinImagen,
       frasesConfirmacion,
       instruccionesCorreccion,
       parametros,
-      productos,
+      productos: productosSinImagen,
       redesSociales,
       tono,
     });
@@ -223,13 +256,12 @@ const createChatbot = async (req, res) => {
     // Guardar el documento en la base de datos
     const result = await newPrompt.save();
 
-    // Cerrar la conexión
-    await clientConnection.close();
-
     res.status(201).json({ message: 'Chatbot creado exitosamente.', data: result });
   } catch (error) {
     console.error('Error al crear el chatbot:', error.message);
     res.status(500).json({ error: 'Error al crear el chatbot' });
+  } finally {
+    if (clientConnection) await clientConnection.close();
   }
 };
 

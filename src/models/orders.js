@@ -26,7 +26,7 @@ const pedidoSchema = new mongoose.Schema({
    editado: { type: Boolean, default: false },
   creadoPor: { type: String, required: true },
   horaCreacion: { type: Date, default: Date.now },
-
+observaciones: { type: String },
   impreso: { type: Boolean, default: false },
   horaImpresion: { type: Date },
 });

@@ -385,7 +385,7 @@ router.post('/addLocation', upload.fields([
     await clientConnection.createCollection('orders');
     await clientConnection.createCollection('config');
     await clientConnection.createCollection('roles');
-    await clientConnection.createCollection('promt');
+    await clientConnection.createCollection('prompt');
 
     // Cerrar la conexión
     await clientConnection.close();
@@ -936,8 +936,7 @@ router.put('/editEmployees', async (req, res) => {
       dbName: `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`
     });
 
-    // Crear el modelo `Employee` en la base de datos específica
-    const employeeSchema =employeeSchema
+    // Usar el esquema importado directamente
     const Employee = clientConnection.model('employees', employeeSchema);
 
     // Actualizar empleados uno por uno
@@ -1195,6 +1194,7 @@ router.post('/crearOrders', async (req, res) => {
     const PedidoModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
     const nuevoPedido = await PedidoModel.create({
       ...pedidoData,
+      estado: 'enviado',
       impreso: false,
       productosEditados: [],
       editado: false,
@@ -1270,11 +1270,10 @@ router.get('/:dbName/ultimos-pedidos', async (req, res) => {
     const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
       dbName: databaseName,
     });
-
     const PedidoModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
-    
+    console.log('Conectando a la base de datos:', databaseName);
     const pedidos = await PedidoModel.find({ estado: 'enviado', impreso: { $ne: true } }).limit(10);
-    
+    console.log('Pedidos encontrados:', pedidos); 
     await clientConnection.close();
 
     res.json(pedidos);
