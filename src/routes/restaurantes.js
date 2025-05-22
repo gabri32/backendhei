@@ -429,49 +429,52 @@ router.post('/productos/upsert', upload.single('imagen'), async (req, res) => {
   try {
     const {
       databaseName,
-      _id, // Si se proporciona, se usará para actualizar
+      _id,
       nombre,
       descripcion,
       precio,
       id_sigo,
       categoryIds,
-      subcategoryIds
+      subcategoryIds,
+      puedeSerAgregadoACombo,
+      permiteAdiciones
     } = req.body;
 
     const imagen = req.file;
 
     if (!databaseName || !nombre || !descripcion || !precio || !id_sigo || !categoryIds) {
-      return res.status(400).json({ error: 'Todos los campos son obligatorios, excepto el _id para crear un nuevo producto.' });
+      return res.status(400).json({ error: 'Faltan campos obligatorios.' });
     }
 
-    // Parsear arrays enviados como string
     const parsedCategories = JSON.parse(categoryIds);
+    const parsedSubcategories = subcategoryIds ? JSON.parse(subcategoryIds) : [];
 
-    // Conectar a la base de datos específica
-   const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
-const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-  dbName
-});
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, { dbName });
     const collection = clientConnection.collection('productos');
 
-    const productData = {
+    const baseProductData = {
       nombre,
       descripcion,
       precio: parseFloat(precio),
       id_sigo,
+      puedeSerAgregadoACombo: puedeSerAgregadoACombo === 'true',
+      permiteAdiciones: permiteAdiciones === 'true',
       categoryIds: parsedCategories,
-      imagen: imagen ? imagen.buffer : undefined, // Solo actualizar si se proporciona una nueva imagen
+      subcategoryIds: parsedSubcategories,
       active: true,
-      updatedAt: new Date(),
-      subcategoryIds: subcategoryIds ? JSON.parse(subcategoryIds) : undefined // Solo actualizar si se proporciona 
+      updatedAt: new Date()
     };
 
     let result;
 
     if (_id) {
-      // Actualizar producto existente
-      const updateData = { ...productData };
-      delete updateData.createdAt; // No modificar la fecha de creación
+      // Si hay imagen nueva, la incluimos. Si no, no tocamos la imagen.
+      const updateData = {
+        ...baseProductData,
+        ...(imagen && { imagen: imagen.buffer }) // Solo si existe imagen
+      };
+
       result = await collection.updateOne(
         { _id: new mongoose.Types.ObjectId(_id) },
         { $set: updateData }
@@ -483,20 +486,26 @@ const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_
       }
 
       res.status(200).json({ message: 'Producto actualizado exitosamente', result });
+
     } else {
-      // Crear nuevo producto
-      productData.createdAt = new Date();
-      result = await collection.insertOne(productData);
+      // Crear nuevo producto (imagen obligatoria si la quieres así)
+      const newProductData = {
+        ...baseProductData,
+        imagen: imagen ? imagen.buffer : undefined,
+        createdAt: new Date()
+      };
+
+      result = await collection.insertOne(newProductData);
       res.status(201).json({ message: 'Producto creado exitosamente', result });
     }
 
-    // Cerrar la conexión
     await clientConnection.close();
   } catch (error) {
     console.error('Error al crear o actualizar producto:', error.message);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 });
+
 
 router.get('/categorias', async (req, res) => {
   const { databaseName } = req.query;
@@ -1666,7 +1675,55 @@ router.delete('/clientes/:id', async (req, res) => {
   }
 });
 
+router.get('/productos/list', async (req, res) => {
+  const { dbName } = req.query;
 
+  if (!dbName) {
+    return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
+  }
 
+  try {
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    // Modelos dinámicos
+    const ProductoModel = clientConnection.model('productos', new mongoose.Schema({}, { strict: false }));
+    const CategoriaModel = clientConnection.model('categorias', new mongoose.Schema({}, { strict: false }));
+
+    // Traer productos y categorías
+    const productos = await ProductoModel.find({}, {
+      _id: 1,
+      nombre: 1,
+      precio: 1,
+      descripcion: 1,
+      categoryIds: 1
+    }).lean();
+
+    const categorias = await CategoriaModel.find({}, { _id: 1, name: 1 }).lean();
+
+    // Crear un mapa de categorías para acceso rápido
+    const categoriasMap = {};
+    categorias.forEach(cat => {
+      categoriasMap[cat._id.toString()] = cat.name;
+    });
+
+    // Agregar nombres de categorías a cada producto
+    const productosConCategorias = productos.map(prod => ({
+      ...prod,
+      categorias: Array.isArray(prod.categoryIds)
+        ? prod.categoryIds.map(catId => categoriasMap[catId.toString()] || null).filter(Boolean)
+        : []
+    }));
+
+    await clientConnection.close();
+
+    res.status(200).json({ message: 'Productos obtenidos exitosamente.', data: productosConCategorias });
+  } catch (error) {
+    console.error('Error al obtener productos:', error.message);
+    res.status(500).json({ error: 'Error al obtener productos.' });
+  }
+});
 
 module.exports = router;
