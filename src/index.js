@@ -14,7 +14,7 @@ const membershipRoutes = require('./routes/membershipt');
 const chatbotRoutes = require('./routes/chatbotroutes');
 
 // 🌍 CORS personalizado
-const allowedOrigins = ["http://localhost:5173","https://heii.netlify.app"];
+const allowedOrigins = ["http://localhost:5173","https://heii.netlify.app","https://heii.io"];
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {

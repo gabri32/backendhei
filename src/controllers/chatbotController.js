@@ -1,37 +1,20 @@
 const mongoose = require('mongoose');
-const getPromptModel = require('../models/prompt'); 
+const getPromptModel = require('../models/prompt');
 const axios = require('axios');
-// Caché de prompts por nombre de base
-const promptsCache = {};
 
-// Lista flexible de frases de confirmación
+const promptsCache = [];
+
 const frasesConfirmacion = [
-  "sí",
-  "por favor",
-  "sí, por favor",
-  "confirmo",
-  "adelante",
-  "hazlo",
-  "eso quiero",
-  "lo quiero",
-  "quiero eso",
-  "está bien",
-  "sí quiero eso",
-  "pídelo",
-  "haz el pedido",
-  "ok, hazlo",
-  "realiza el pedido",
-  "sí, eso es todo",
-  "si pidelo"
+  "sí", "por favor", "sí, por favor", "confirmo", "adelante", "hazlo",
+  "eso quiero", "lo quiero", "quiero eso", "está bien", "sí quiero eso",
+  "pídelo", "haz el pedido", "ok, hazlo", "realiza el pedido", "sí, eso es todo", "si pidelo"
 ];
 
-// Detecta si el mensaje contiene una frase de confirmación
 function detectarConfirmacion(texto) {
   const normalizado = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, '');
   return frasesConfirmacion.some(frase => normalizado.includes(frase));
 }
 
-// Genera prompt estructurado desde el documento Mongo
 function generarPromptDesdeDocumento(doc) {
   const categorias = doc.categorias
     .filter(c => c.active)
@@ -48,14 +31,14 @@ function generarPromptDesdeDocumento(doc) {
 
   const parametros = doc.parametros?.map(p => p.titulo) || [];
 
-  return `
+ return `
 Eres un asistente ${doc.tono || 'amigable'} de un restaurante. Tu tarea es mostrar productos, responder dudas sobre ellos, tomar pedidos, confirmar, y guiar al usuario amablemente.
 
 📦 *Categorías disponibles:*
 ${categorias}
 
 🍽️ *Productos disponibles:*
-${productos}
+${productos.length} productos activos. No los menciones todos tú. El sistema los mostrará automáticamente.
 
 ✅ Frase de confirmación del pedido:
 "${doc.frasesConfirmacion}"
@@ -65,25 +48,27 @@ ${productos}
 
 📌 Al tomar un pedido, solicita estos datos extra: ${parametros.join(', ') || 'ninguno'}.
 
-🚫 No respondas temas fuera del menú. Si el usuario menciona algo no listado, indica que no está disponible. No inventes productos ni cambies precios.
+🧠 RESPONDE ASÍ:
+- Si el usuario pide algo específico, responde con algo como: “Sí, tenemos hamburguesas deliciosas 🍔, mira:”
+- Si el usuario quiere ver todo, responde: “¡Perfecto! Aquí tienes todo el menú 👇”
+- No escribas listas completas ni detalles de productos. El sistema mostrará los productos automáticamente.
+
+🚫 No respondas temas fuera del menú. No inventes productos ni cambies precios.
 `.trim();
+
 }
 
-
-
 const chatBotHandler = async (req, res) => {
-  const { mensaje, mensajeUsuario, dbName, userId, sessionId, carrito } = req.body;
+  const { mensajeUsuario, dbName, userId, sessionId } = req.body;
 
-  if (!mensaje || !mensajeUsuario || !dbName || (!userId && !sessionId)) {
+  if (!mensajeUsuario || !dbName || (!userId && !sessionId)) {
     return res.status(400).json({
-      error: "Faltan campos requeridos: mensaje, mensajeUsuario, dbName, userId o sessionId."
+      error: "Faltan campos requeridos: mensajeUsuario, dbName, userId o sessionId."
     });
   }
-console.log("🛒 Carrito recibido:", carrito);
 
   try {
     if (!promptsCache[dbName]) {
-      console.log("Conectando a la base de datos dinámica:", dbName);
       const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
       const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
         dbName: databaseName,
@@ -102,50 +87,17 @@ console.log("🛒 Carrito recibido:", carrito);
     }
 
     const { promptDoc, promptTexto } = promptsCache[dbName];
-    const esConfirmacion = detectarConfirmacion(mensajeUsuario);
+    const productos = promptDoc.productos || [];
 
-    let mensajeResumen = null;
-    let redirigirACarrito = false;
-
-    if (Array.isArray(carrito) && carrito.length > 0 && esConfirmacion) {
-      mensajeResumen = generarResumen(carrito, promptDoc.frasesConfirmacion);
-      redirigirACarrito = true;
-    }
-
-    // ✅ Función para formatear carrito para el frontend
-    function formatearCarritoParaFrontend(carrito) {
-      return carrito.map(p => ({
-        itemId: p.itemId || p.id || p._id,
-        nombre: p.nombre,
-        precio: p.precio,
-        imagen: p.imagen || null,
-        numberItems: p.numberItems || 1
-      }));
-    }
-
-    // ✅ Si el usuario ya confirmó y hay productos, devolvemos respuesta sin llamar a OpenAI
-    if (redirigirACarrito) {
-      return res.json({
-        respuesta: "Perfecto, tu pedido está confirmado. Presiona el botón para finalizar 🛒",
-        redirigirACarrito: true,
-        carrito: formatearCarritoParaFrontend(carrito)
-      });
-    }
-
-    // 🧠 Si no es confirmación, continúa con OpenAI
     const mensajes = [
       { role: 'system', content: promptTexto },
       { role: 'user', content: mensajeUsuario }
     ];
 
-    if (mensajeResumen) {
-      mensajes.push({ role: 'assistant', content: mensajeResumen });
-    }
-
     const respuesta = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
-        model: 'gpt-4',
+        model: 'gpt-4.1-nano',
         messages: mensajes
       },
       {
@@ -155,30 +107,72 @@ console.log("🛒 Carrito recibido:", carrito);
         }
       }
     );
-// Detectar productos mencionados en la respuesta
-const textoRespuesta = respuesta.data.choices[0].message.content;
-const productos = promptDoc.productos || [];
-const nombres = productos.map(p => p.nombre.toLowerCase());
-const productosSugeridos = productos
-  .filter(p => {
-    const nombre = p.nombre.toLowerCase();
-    const textoNormalizado = textoRespuesta.toLowerCase().normalize("NFD").replace(/[^a-z0-9 ]/gi, "");
-    return textoNormalizado.includes(nombre.replace(/\s+/g, ''));
-  })
-  .map(p => p._id);
 
-   return res.json({
-  respuesta: textoRespuesta,
-  redirigirACarrito: false,
-  productosSugeridos
-});
+    const textoCompleto = respuesta.data.choices[0].message.content;
 
+    // 🧠 Detectar productos desde el mensaje del usuario, no desde la IA
+    const textoUsuarioNormalizado = mensajeUsuario
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9 ]/gi, '');
+
+    // Detectar si el usuario quiere ver todo
+    const frasesTodoElMenu = ["todo el menú", "todo lo que tienes", "muéstrame todo", "que tienes", "ver menú", "mostrar productos"];
+    const quiereTodo = frasesTodoElMenu.some(frase =>
+      textoUsuarioNormalizado.includes(frase.replace(/[^a-z0-9 ]/gi, ''))
+    );
+
+    let productosSugeridos = [];
+// 🔍 Detectar frases tipo "quiero X con Y" o combos
+const partesPedido = textoUsuarioNormalizado.split(/con|y|acompañado de|más/i).map(p => p.trim());
+
+
+for (const parte of partesPedido) {
+  for (const p of productos) {
+    const nombreNormalizado = p.nombre
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '');
+
+    if (parte.includes(nombreNormalizado)) {
+      productosSugeridos.push(p._id);
+    }
+  }
+}
+
+    if (quiereTodo) {
+      productosSugeridos = productos.map(p => p._id);
+    } else {
+      for (const p of productos) {
+        const nombreNormalizado = p.nombre
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/\s+/g, '');
+
+        if (textoUsuarioNormalizado.includes(nombreNormalizado)) {
+          productosSugeridos.push(p._id);
+        }
+      }
+    }
+
+    const productosSugeridosUnicos = [...new Set(productosSugeridos)];
+
+    return res.json({
+      respuesta: textoCompleto,
+      productosSugeridos: productosSugeridosUnicos
+    });
 
   } catch (error) {
     console.error('Error en el chatbot:', error.response?.data || error.message);
     res.status(500).json({ error: 'Error procesando tu mensaje.' });
   }
 };
+
+
+
 
 const createChatbot = async (req, res) => {
   let clientConnection;
@@ -201,7 +195,6 @@ const createChatbot = async (req, res) => {
       return res.status(400).json({ error: 'El nombre del asistente es obligatorio.' });
     }
 
-    // Limpiar imageUrl de categorias y imagen de productos
     const categoriasSinImagen = Array.isArray(categorias)
       ? categorias.map(cat => {
           const { imageUrl, ...rest } = cat;
@@ -216,7 +209,6 @@ const createChatbot = async (req, res) => {
         })
       : [];
 
-    // Normalizar y loggear el nombre de la base de datos
     const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
     console.log("🟢 Conectando a base de datos:", databaseName);
 
@@ -224,7 +216,6 @@ const createChatbot = async (req, res) => {
       dbName: databaseName,
     });
 
-    // Crear el modelo para la colección `prompts`
     const Prompt = clientConnection.model(
       'prompt',
       new mongoose.Schema({
@@ -241,7 +232,6 @@ const createChatbot = async (req, res) => {
       'prompt'
     );
 
-    // Crear el documento con los datos recibidos (sin imágenes)
     const newPrompt = new Prompt({
       nombreAsistente,
       categorias: categoriasSinImagen,
@@ -253,10 +243,9 @@ const createChatbot = async (req, res) => {
       tono,
     });
 
-    // Guardar el documento en la base de datos
     const result = await newPrompt.save();
-
     res.status(201).json({ message: 'Chatbot creado exitosamente.', data: result });
+
   } catch (error) {
     console.error('Error al crear el chatbot:', error.message);
     res.status(500).json({ error: 'Error al crear el chatbot' });
@@ -266,5 +255,3 @@ const createChatbot = async (req, res) => {
 };
 
 module.exports = { chatBotHandler, createChatbot };
-
-
