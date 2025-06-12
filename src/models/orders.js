@@ -15,7 +15,7 @@ const pedidoSchema = new mongoose.Schema({
   },
   estado: {
     type: String,
-    enum: ['creado', 'enviado', 'preparado', 'entregado', 'facturado', 'cancelado'],
+    enum: ['creado', 'enviado', 'preparado', 'entregado', 'facturado', 'cancelado','dado_de_baja'],
     default: 'creado',
   },
   mesa: { type: String, required: function() { return this.tipo === 'en_local'; } },

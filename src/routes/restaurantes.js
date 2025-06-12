@@ -1417,7 +1417,7 @@ console.log("entroooooooooooooooooooo")
       .lean();
 
     await clientConnection.close();
-
+console.log("Pedidos obtenidos:", pedidos);
     res.status(200).json({ message: 'Pedidos obtenidos exitosamente.', data: pedidos });
   } catch (error) {
     console.error('Error al obtener pedidos:', error.message);
@@ -1485,6 +1485,50 @@ router.patch('/orders/:id/cancelar', async (req, res) => {
     res.status(500).json({ error: 'Error al cancelar pedido.' });
   }
 });
+router.patch('/orders/:id/baja', async (req, res) => {
+  const { id } = req.params;
+  const { dbName, motivo } = req.body;
+
+  if (!dbName || !motivo) {
+    return res.status(400).json({
+      error: 'Se requieren dbName y motivo para dar de baja el pedido.'
+    });
+  }
+
+  try {
+    const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
+    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName: databaseName,
+    });
+
+    const OrderModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
+
+    const pedidoActualizado = await OrderModel.findByIdAndUpdate(
+      id,
+      {
+        estado: 'dado_de_baja',
+        motivoBaja: motivo,
+        fechaBaja: new Date()
+      },
+      { new: true }
+    );
+
+    await clientConnection.close();
+
+    if (!pedidoActualizado) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    res.status(200).json({
+      message: 'Pedido dado de baja correctamente.',
+      data: pedidoActualizado
+    });
+  } catch (error) {
+    console.error('Error al dar de baja pedido:', error.message);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
 router.patch('/orders/:id/facturar', async (req, res) => {
   const { id } = req.params;
   const { dbName } = req.body;
