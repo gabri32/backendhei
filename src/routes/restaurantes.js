@@ -1399,7 +1399,6 @@ router.patch('/updateOrderEstado/:id', async (req, res) => {
 });
 router.get('/orders', async (req, res) => {
   const { dbName } = req.query;
-console.log("entroooooooooooooooooooo")
   if (!dbName) {
     return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
   }
