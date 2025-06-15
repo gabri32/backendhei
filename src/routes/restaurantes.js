@@ -256,21 +256,22 @@ router.post('/wompi-webhook', async (req, res) => {
     const transaction = req.body.data?.transaction;
 
     if (event === 'transaction.updated' && transaction.status === 'APPROVED') {
-      const userId = transaction.sku; // Este es el ID que mandaste en createPaymentLink
+      const userId = transaction.sku;  // authData._id
+      const planId = transaction.metadata?.planId;
+      const planName = transaction.metadata?.planName;
 
       const user = await Users.findById(userId);
       if (!user) {
-        return res.status(404).json({ error: 'Usuario no encontrado para el webhook' });
+        return res.status(404).json({ error: 'Usuario no encontrado para webhook' });
       }
 
-    
       const fechaInicio = new Date();
       const fechaFin = new Date();
       fechaFin.setMonth(fechaInicio.getMonth() + 1);
 
       user.plan = {
-        id: transaction.metadata.planId || "wompi-link",
-        nombre: transaction.metadata.planName || "Membresía Wompi",
+        id: planId,
+        nombre: planName,
         fechaInicio: fechaInicio.toISOString(),
         fechaFin: fechaFin.toISOString()
       };
@@ -280,15 +281,16 @@ router.post('/wompi-webhook', async (req, res) => {
 
       await user.save();
 
-      console.log(`✅ Membresía activada para usuario ${user.email}`);
+      console.log(`✅ Membresía activada por webhook para usuario ${user.email}`);
     }
 
-    res.sendStatus(200); // Wompi espera una respuesta 200 para confirmar que lo recibiste
+    res.sendStatus(200);
   } catch (err) {
-    console.error("Error en webhook Wompi:", err.message);
-    res.status(500).json({ error: 'Error procesando el webhook' });
+    console.error("❌ Error en webhook:", err.message);
+    res.status(500).json({ error: 'Error procesando webhook' });
   }
 });
+
 
 
 // Ruta para actulizar si tiene membresias
