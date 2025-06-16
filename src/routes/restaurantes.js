@@ -255,9 +255,8 @@ router.post('/wompi-webhook', async (req, res) => {
     const event = req.body.event;
     const transaction = req.body.data?.transaction;
 console.log("📩 Webhook recibido:",
-  event,
-  "datos seperados",
-transaction
+  req.body
+
 );
 
     if (event === 'transaction.updated' && transaction.status === 'APPROVED') {
