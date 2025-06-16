@@ -254,14 +254,11 @@ router.post('/wompi-webhook', async (req, res) => {
   try {
     const event = req.body.event;
     const transaction = req.body.data?.transaction;
-console.log("📩 Webhook recibido:", {
+console.log("📩 Webhook recibido:",
   event,
-  transactionId: transaction.id,
-  userId: transaction.sku,
-  status: transaction.status,
-  amount: transaction.amount_in_cents,
-  reference: transaction.reference,
-});
+  "datos seperados",
+transaction
+);
 
     if (event === 'transaction.updated' && transaction.status === 'APPROVED') {
       const userId = transaction.sku;  // authData._id
