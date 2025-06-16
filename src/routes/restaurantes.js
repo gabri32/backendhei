@@ -260,7 +260,7 @@ console.log("📩 Webhook recibido:",
 );
 
     if (event === 'transaction.updated' && transaction.status === 'APPROVED') {
-      const userId = transaction.sku;  // authData._id
+      const userId = transaction.customer_data.user_id;  // authData._id
       const planId = transaction.metadata?.planId;
       const planName = transaction.metadata?.planName;
 
