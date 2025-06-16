@@ -260,10 +260,10 @@ console.log("📩 Webhook recibido:",
 );
 
     if (event === 'transaction.updated' && transaction.status === 'APPROVED') {
-      const userId = transaction.customer_data.user_id;  // authData._id
+      const userId = transaction.user_data.user_id;  // authData._id
       const planId = transaction.metadata?.planId;
       const planName = transaction.metadata?.planName;
-console.log("📩 Webhook de transacción aprobada:", transaction.customer_data);
+console.log("📩 Webhook de transacción aprobada:", transaction.user_data);
       const user = await Users.findById(userId);
       if (!user) {
         return res.status(404).json({ error: 'Usuario no encontrado para webhook' });
