@@ -252,46 +252,46 @@ router.post('/verifyCode', async (req, res) => {
 });
 router.post('/wompi-webhook', async (req, res) => {
   try {
-    const event = req.body.event;
-    const transaction = req.body.data?.transaction;
-console.log("📩 Webhook recibido:",
-  req.body.data
-
-);
-
-    if (event === 'transaction.updated' && transaction.status === 'APPROVED') {
-      const userId = transaction.user_data.user_id;  // authData._id
-      const planId = transaction.metadata?.planId;
-      const planName = transaction.metadata?.planName;
-console.log("📩 Webhook de transacción aprobada:", transaction.user_data);
-      const user = await Users.findById(userId);
-      if (!user) {
-        return res.status(404).json({ error: 'Usuario no encontrado para webhook' });
-      }
-
-      const fechaInicio = new Date();
-      const fechaFin = new Date();
-      fechaFin.setMonth(fechaInicio.getMonth() + 1);
-
-      user.plan = {
-        id: planId,
-        nombre: planName,
-        fechaInicio: fechaInicio.toISOString(),
-        fechaFin: fechaFin.toISOString()
-      };
-
-      user.estadoMembresia = "activa";
-      user.datosCompletos = true;
-
-      await user.save();
-
-      console.log(`✅ Membresía activada por webhook para usuario ${user.email}`);
+    const { event, data: { transaction } } = req.body;
+    if (event !== 'transaction.updated' || transaction.status !== 'APPROVED') {
+      return res.sendStatus(200);
     }
+
+    // 1. Consulta los detalles reales del payment link
+    const detail = await axios.get(
+      `https://sandbox.wompi.co/v1/payment_links/${transaction.payment_link_id}`,
+      { headers: { Authorization: `Bearer ${process.env.WOMPI_PRIVATE_KEY_SANDBOX}` } }
+    );
+    const info = detail.data.data;
+
+    // 2. Extrae info importante
+    const userId = info.sku;
+    const planId = info.metadata.planId;
+    const planName = info.metadata.planName;
+
+    const user = await Users.findById(userId);
+    if (!user) {
+      console.error("Usuario no encontrado:", userId);
+      return res.sendStatus(404);
+    }
+
+    // 3. Actualiza plan
+    user.plan = {
+      id: planId,
+      nombre: planName,
+      fechaInicio: new Date().toISOString(),
+      fechaFin: new Date(Date.now() + 30*24*60*60*1000).toISOString(),
+    };
+    user.estadoMembresia = "activa";
+    user.ultimaTransaccion = transaction.id;
+
+    await user.save();
+    console.log("✅ Membresía activada para", user.email);
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("❌ Error en webhook:", err.message);
-    res.status(500).json({ error: 'Error procesando webhook' });
+    console.error("Error procesando webhook:", err);
+    res.sendStatus(500);
   }
 });
 
