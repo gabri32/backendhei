@@ -255,7 +255,7 @@ router.post('/wompi-webhook', async (req, res) => {
     const event = req.body.event;
     const transaction = req.body.data?.transaction;
 console.log("📩 Webhook recibido:",
-  req.body.transaction
+  req.body.data
 
 );
 
