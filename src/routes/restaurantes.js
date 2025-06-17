@@ -17,6 +17,8 @@ const multer = require('multer');
 const upload = multer();
 const nodemailer = require('nodemailer');
 const LSMembership = require('../models/membership');
+const axios = require('axios');
+
 const SALT_ROUNDS = 10;
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
