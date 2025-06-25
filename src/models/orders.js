@@ -5,6 +5,7 @@ const productoSchema = new mongoose.Schema({
   nombre: { type: String, required: true },
   cantidad: { type: Number, required: true },
   precioUnitario: { type: Number, required: true },
+  idSigo: { type: String, required: true },
 });
 
 const pedidoSchema = new mongoose.Schema({

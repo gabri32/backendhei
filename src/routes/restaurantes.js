@@ -1,6 +1,9 @@
 const express = require('express');
 const ThermalPrinter = require("node-thermal-printer").printer;
 const Types = require("node-thermal-printer").types;
+const { print } = require("pdf-to-printer");
+const path = require("path");
+const fs = require("fs");
 const router = express.Router();
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
@@ -18,7 +21,7 @@ const upload = multer();
 const nodemailer = require('nodemailer');
 const LSMembership = require('../models/membership');
 const axios = require('axios');
-
+const { createOrder,getPaymentTypes } =require('./siigoAPI'); // Asegúrate de importar correctamente la función de Siigo
 const SALT_ROUNDS = 10;
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
@@ -1242,7 +1245,7 @@ router.post('/crearOrders', async (req, res) => {
     if (!dbName) {
       return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
     }
-
+console.log("datos de los productos nuevos",pedidoData);
     const databaseName = `location_${dbName.toLowerCase().replace(/\\s+/g, '_')}`;
     const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
       dbName: databaseName,
@@ -1464,7 +1467,7 @@ router.get('/orders', async (req, res) => {
       .lean();
 
     await clientConnection.close();
-console.log("Pedidos obtenidos:", pedidos);
+// console.log("Pedidos obtenidos:", pedidos);
     res.status(200).json({ message: 'Pedidos obtenidos exitosamente.', data: pedidos });
   } catch (error) {
     console.error('Error al obtener pedidos:', error.message);
@@ -1575,6 +1578,89 @@ router.patch('/orders/:id/baja', async (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
+const siigoConfigSchema = require('../models/siigo_config');
+
+const facturarPedidoConSiigo = async (pedido, clientConnection) => {
+  const SiigoConfigModel = clientConnection.model('siigo_config', siigoConfigSchema);
+  const configDoc = await SiigoConfigModel.findOne();
+
+  if (!configDoc) throw new Error("No se encontró la configuración de Siigo para este restaurante.");
+  const config = configDoc.toObject(); // <--- solución crítica aquí
+
+  const fecha = new Date().toISOString().split('T')[0];
+
+  const itemsFormateados = pedido.productos.map(producto => ({
+    code: producto.idSigo,
+    description: producto.nombre,
+    quantity: producto.cantidad,
+    price: producto.precioUnitario,
+    taxes: []
+  }));
+
+  const total = pedido.productos.reduce((acc, p) => acc + p.precioUnitario * p.cantidad, 0);
+
+  const body = {
+    document: { id: config.document_id },
+    date: fecha,
+    customer: {
+      identification: config.customer_default_identification
+    },
+    seller: config.seller_id,
+    cost_center: config.cost_center_id,
+    items: itemsFormateados,
+    payments: [
+      {
+        id: config.payment_method_id,
+        value: total
+      }
+    ]
+  };
+
+  try {
+    const factura = await createOrder(body, config);
+    return factura;
+  } catch (error) {
+    console.error('❌ Error al crear factura en Siigo:', error);
+    throw error;
+  }
+};
+
+const PrinterTypes = require("node-thermal-printer").types;
+
+const imprimirFactura = async (pedido, factura) => {
+  const printer = new ThermalPrinter({
+    type: PrinterTypes.EPSON,
+  interface: 'printer:POS80C'
+  });
+
+  printer.alignCenter();
+  printer.println("FACTURA SIIGO");
+  printer.println("-------------------------");
+
+  factura.items.forEach(item => {
+    printer.alignLeft();
+    printer.println(`${item.description} x${item.quantity} $${item.price}`);
+  });
+
+  printer.drawLine();
+
+  printer.alignRight();
+  printer.println(`Total: $${factura.total}`);
+  printer.println(`Fecha: ${factura.date}`);
+  printer.println(`Factura #: ${factura.number}`);
+  
+  // if (factura.public_url) {
+  //   printer.println("Escanee para ver:");
+  //   printer.qr(factura.public_url);
+  // }
+
+  printer.cut();
+
+  const success = await printer.execute();
+  if (!success) throw new Error("No se pudo imprimir la factura.");
+};
+
+
 
 router.patch('/orders/:id/facturar', async (req, res) => {
   const { id } = req.params;
@@ -1584,32 +1670,46 @@ router.patch('/orders/:id/facturar', async (req, res) => {
     return res.status(400).json({ error: 'El nombre de la base de datos (dbName) es obligatorio.' });
   }
 
+  let clientConnection;
   try {
     const databaseName = `location_${dbName.toLowerCase().replace(/\s+/g, '_')}`;
-    const clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+    clientConnection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
       dbName: databaseName,
     });
 
     const OrderModel = clientConnection.model('orders', new mongoose.Schema({}, { strict: false }));
 
-    const pedidoFacturado = await OrderModel.findByIdAndUpdate(
+    const pedido = await OrderModel.findByIdAndUpdate(
       id,
       { estado: 'facturado' },
-      { new: true } // Retornar el documento actualizado
+      { new: true }
     );
 
-    await clientConnection.close();
-
-    if (!pedidoFacturado) {
+    if (!pedido) {
       return res.status(404).json({ error: 'Pedido no encontrado.' });
     }
 
-    res.status(200).json({ message: 'Pedido marcado como facturado exitosamente.', data: pedidoFacturado });
+    const factura = await facturarPedidoConSiigo(pedido, clientConnection);
+    let pdfUrl = factura?.public_url || null;
+
+    console.log("Factura creada:", factura);
+    console.log("URL pública del PDF:", pdfUrl);
+await imprimirFactura(pedido, factura);
+
+    res.status(200).json({
+      message: 'Pedido facturado exitosamente.',
+      data: pedido,
+      pdfUrl
+    });
+
   } catch (error) {
     console.error('Error al facturar pedido:', error.message);
     res.status(500).json({ error: 'Error al facturar pedido.' });
+  } finally {
+    if (clientConnection) await clientConnection.close();
   }
 });
+
 router.patch('/orders/:id/entregar', async (req, res) => {
   const { id } = req.params;
   const { dbName } = req.body;
