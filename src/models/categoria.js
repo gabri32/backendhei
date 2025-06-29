@@ -10,7 +10,10 @@ const categoriaSchema = new mongoose.Schema({
   imageUrl: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
   active: { type: Boolean, default: true },
-  subcategorias: { type: [subcategoriaSchema], default: [] }
+  subcategorias: { type: [subcategoriaSchema], default: [] },
+  esBebida: { type: Boolean, default: false },
+  esPlatoPrincipal: { type: Boolean, default: false },
+  esAdicional: { type: Boolean, default: false }
 });
 
 module.exports = categoriaSchema;

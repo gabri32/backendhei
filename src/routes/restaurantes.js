@@ -584,14 +584,13 @@ router.get('/categorias', async (req, res) => {
 });
 router.post('/categorias/create', upload.single('imagen'), async (req, res) => {
   try {
-    const { databaseName, name } = req.body;
+    const { databaseName, name, esBebida, esPlatoPrincipal, esAdicional } = req.body;
     const imagen = req.file;
 
     if (!databaseName || !name || !imagen || !req.body.subcategorias) {
       return res.status(400).json({ error: 'Todos los campos son obligatorios' });
     }
 
-    // Parsear subcategorias (viene como string)
     let subcategorias;
     try {
       subcategorias = JSON.parse(req.body.subcategorias);
@@ -600,32 +599,30 @@ router.post('/categorias/create', upload.single('imagen'), async (req, res) => {
       return res.status(400).json({ error: 'Subcategorías con formato inválido' });
     }
 
-    // Convertir imagen a base64
     const buffer = imagen.buffer;
     const base64Image = buffer.toString('base64');
 
-    // Crear objeto categoría
     const categoria = {
       name,
       imageUrl: base64Image,
       createdAt: new Date(),
       subcategorias,
+      esBebida: esBebida === 'true',
+      esPlatoPrincipal: esPlatoPrincipal === 'true',
+      esAdicional: esAdicional === 'true',
     };
 
-    // Conexión dinámica a base de datos
- const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
-const client = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-  dbName,
-});
+    const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
+    const client = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
+      dbName,
+    });
 
-    // Validación de existencia previa
     const existe = await client.collection('categorias').findOne({ name });
     if (existe) {
       await client.close();
       return res.status(400).json({ error: 'Ya existe una categoría con ese nombre' });
     }
 
-    // Guardar en base de datos
     const result = await client.collection('categorias').insertOne(categoria);
     await client.close();
 
@@ -638,21 +635,30 @@ const client = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
 
 
 
+
 router.put('/categorias/update', async (req, res) => {
   try {
-    const { databaseName, _id, name } = req.body;
+    const { databaseName, _id, name, esBebida, esPlatoPrincipal, esAdicional } = req.body;
+
     if (!databaseName || !_id || !name) {
       return res.status(400).json({ error: 'Datos incompletos' });
     }
 
     const dbName = `location_${databaseName.toLowerCase().replace(/\s+/g, '_')}`;
-    const connection = await mongoose.createConnection(process.env.HEII_MONGO_URI, {
-      dbName
-    });
-
+    const connection = await mongoose.createConnection(process.env.HEII_MONGO_URI, { dbName });
     const Categoria = connection.model('Categoria', categoriaSchema, 'categorias');
 
-    const result = await Categoria.updateOne({ _id: _id }, { $set: { name } });
+    const result = await Categoria.updateOne(
+      { _id },
+      {
+        $set: {
+          name,
+          esBebida: !!esBebida,
+          esPlatoPrincipal: !!esPlatoPrincipal,
+          esAdicional: !!esAdicional,
+        }
+      }
+    );
 
     await connection.close();
     res.status(200).json({ message: 'Categoría actualizada', result });
@@ -1694,7 +1700,7 @@ router.patch('/orders/:id/facturar', async (req, res) => {
 
     console.log("Factura creada:", factura);
     console.log("URL pública del PDF:", pdfUrl);
-await imprimirFactura(pedido, factura);
+// await imprimirFactura(pedido, factura);
 
     res.status(200).json({
       message: 'Pedido facturado exitosamente.',
