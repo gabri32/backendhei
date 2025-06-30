@@ -509,7 +509,6 @@ router.post('/productos/upsert', upload.single('imagen'), async (req, res) => {
       descripcion,
       precio: parseFloat(precio),
       id_sigo,
-      puedeSerAgregadoACombo: puedeSerAgregadoACombo === 'true',
       permiteAdiciones: permiteAdiciones === 'true',
       categoryIds: parsedCategories,
       subcategoryIds: parsedSubcategories,

@@ -11,7 +11,7 @@ const sendPedidoConfirmacion = async (email, pedido) => {
     });
 
     const productosHTML = pedido.productos.map(p =>
-      `<li>${p.cantidad} × ${p.nombre} (${p.precioUnitario.toFixed(2)} €)</li>`
+      `<li>${p.cantidad} × ${p.nombre} (${p.precioUnitario.toFixed(2)}  $)</li>`
     ).join('');
 
     const total = pedido.productos.reduce(
@@ -31,9 +31,9 @@ Dirección: ${pedido.direccion}
 Teléfono: ${pedido.telefono}
 
 Productos:
-${pedido.productos.map(p => `${p.cantidad} x ${p.nombre} (${p.precioUnitario.toFixed(2)} €)`).join('\n')}
+${pedido.productos.map(p => `${p.cantidad} x ${p.nombre} (${p.precioUnitario.toFixed(2)}  $)`).join('\n')}
 
-Total: ${total.toFixed(2)} €
+Total: ${total.toFixed(2)}  $
 
 En breve te lo entregaremos.
 
@@ -47,7 +47,7 @@ Gracias por confiar en nosotros.`,
           <p><strong>Teléfono:</strong> ${pedido.telefono}</p>
           <p><strong>Productos:</strong></p>
           <ul>${productosHTML}</ul>
-          <p><strong>Total:</strong> ${total.toFixed(2)} €</p>
+          <p><strong>Total:</strong> ${total.toFixed(2)}  $</p>
           <br>
           <p>En breve te lo entregaremos. ¡Gracias por confiar en nosotros!</p>
           <hr>

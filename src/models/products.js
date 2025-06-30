@@ -10,10 +10,5 @@ const productSchema = new mongoose.Schema({
   ingredientes: [{ type: String }],
   disponible: { type: Boolean, default: true },
   imagen: { type: Buffer },
-
-  // Si este producto puede agregarse dentro de un combo personalizado
-  puedeSerAgregadoACombo: { type: Boolean, default: false },
-
-  // Indica si este producto permite que se le agreguen adiciones
   permiteAdiciones: { type: Boolean, default: false }
 });
