@@ -487,7 +487,6 @@ router.post('/productos/upsert', upload.single('imagen'), async (req, res) => {
       id_sigo,
       categoryIds,
       subcategoryIds,
-      puedeSerAgregadoACombo,
       permiteAdiciones
     } = req.body;
 
