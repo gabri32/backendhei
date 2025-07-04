@@ -6,7 +6,19 @@ const productoSchema = new mongoose.Schema({
   cantidad: { type: Number, required: true },
   precioUnitario: { type: Number, required: true },
   idSigo: { type: String, required: true },
+  esCombo: { type: Boolean, default: false },
+  adiciones: [{
+    nombre: String,
+    precio: Number,
+    idSigo: String,
+  }],
+  itemsCombo: [{
+    nombre: String,
+    precio: Number,
+    idSigo: String,
+  }],
 });
+
 
 const pedidoSchema = new mongoose.Schema({
   tipo: {
