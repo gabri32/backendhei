@@ -1698,8 +1698,6 @@ router.patch('/orders/:id/facturar', async (req, res) => {
 
     console.log("Factura creada:", factura);
     console.log("URL pública del PDF:", pdfUrl);
-// await imprimirFactura(pedido, factura);
-
     res.status(200).json({
       message: 'Pedido facturado exitosamente.',
       data: pedido,
@@ -1713,6 +1711,8 @@ router.patch('/orders/:id/facturar', async (req, res) => {
     if (clientConnection) await clientConnection.close();
   }
 });
+
+
 
 router.patch('/orders/:id/entregar', async (req, res) => {
   const { id } = req.params;
