@@ -1,57 +1,56 @@
-const express = require('express');
+const express = require("express");
+const http = require("http");
+const cors = require("cors");
+
 const app = express();
-const http = require('http');
 const server = http.createServer(app);
-const socket = require('./utils/socket'); // Importar el módulo de socket.io
+const socket = require("./utils/socket"); // Importar el módulo de socket.io
 
 // 🔌 Conexión a MongoDB
-const connectToDatabase = require('./conectiondb');
+const connectToDatabase = require("./conectiondb");
 
 // 📦 Rutas
-const restaurantRoutes = require('../src/routes/restaurantes');
-const authRoutes = require('./routes/auth');
-const membershipRoutes = require('./routes/membershipt');
-const chatbotRoutes = require('./routes/chatbotroutes');
+const restaurantRoutes = require("../src/routes/restaurantes");
+const authRoutes = require("./routes/auth");
+const membershipRoutes = require("./routes/membershipt");
+const chatbotRoutes = require("./routes/chatbotroutes");
 
-// 🌍 CORS personalizado
+// 🌍 CORS configurado
 const allowedOrigins = [
   "http://localhost:5173",
   "https://heii.netlify.app",
-  "https://heii.io"
+  "https://heii.io",
 ];
 
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Permitir peticiones sin "origin" (como Postman o servidores internos)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
 
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-
-  next();
-});
-
-
+// 📦 Middleware JSON
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 // 🧠 Configurar socket.io
 socket.init(server, allowedOrigins);
 
-// 📦 Middleware JSON
-app.use(express.json({ limit: '25mb' }));
-app.use(express.urlencoded({ extended: true, limit: '25mb' }));
-
 // 🔀 Rutas
-app.get('/', (req, res) => res.send('Hello World!'));
-app.use('/api/auth', authRoutes);
-app.use('/api/restaurantes', restaurantRoutes);
-app.use('/api/memberships', membershipRoutes);
-app.use('/api/chatV1', chatbotRoutes);
+app.get("/", (req, res) => res.send("Hello World!"));
+app.use("/api/auth", authRoutes);
+app.use("/api/restaurantes", restaurantRoutes);
+app.use("/api/memberships", membershipRoutes);
+app.use("/api/chatV1", chatbotRoutes);
 
 // 🔗 Conexión base de datos
 connectToDatabase();
