@@ -58,7 +58,6 @@ app.use('/api/printers', printerRoutes);
 // 🔗 Conexión base de datos
 connectToDatabase();
 
-// 🚀 Iniciar servidor
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
   console.log(`🚀 Servidor corriendo con socket.io en http://localhost:${port}`);
