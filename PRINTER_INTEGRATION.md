@@ -12,8 +12,7 @@ Backend Heii (Puerto 3000)
 │   ├── Manejo de salas para chat
 │   └── Registro de clientes de impresión
 ├── API REST
-│   ├── /api/printers/* (Gestión de impresión)
-│   └── /api/orders/* (Órdenes con impresión automática)
+│   └── /api/printers/* (Gestión de impresión)
 └── PrinterService (Servicio helper)
 ```
 
@@ -73,52 +72,6 @@ Content-Type: application/json
 }
 ```
 
-### **Crear Orden con Impresión Automática**
-```http
-POST /api/orders/create
-Content-Type: application/json
-
-{
-  "storeId": "tienda-123",
-  "customerInfo": {
-    "name": "Juan Pérez",
-    "phone": "123456789"
-  },
-  "table": "Mesa 5",
-  "items": [
-    {
-      "name": "Hamburguesa Clásica",
-      "quantity": 2,
-      "price": 15000,
-      "notes": "Sin cebolla"
-    },
-    {
-      "name": "Papas Fritas",
-      "quantity": 1,
-      "price": 8000
-    }
-  ],
-  "notes": "Cliente quiere salsa extra",
-  "paymentMethod": "efectivo"
-}
-```
-
-### **Reimprimir Orden**
-```http
-POST /api/orders/reprint
-Content-Type: application/json
-
-{
-  "orderId": "1725318000000",
-  "storeId": "tienda-123", 
-  "target": "cocina"
-}
-```
-
-### **Estado de Impresoras por Tienda**
-```http
-GET /api/orders/printer-status/tienda-123
-```
 
 ## 💻 Uso Programático
 

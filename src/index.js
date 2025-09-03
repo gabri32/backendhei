@@ -13,7 +13,6 @@ const authRoutes = require('./routes/auth');
 const membershipRoutes = require('./routes/membershipt');
 const chatbotRoutes = require('./routes/chatbotroutes');
 const printerRoutes = require('./routes/printers');
-const orderRoutes = require('./routes/orders');
 
 // 🌍 CORS personalizado
 const allowedOrigins = [
@@ -55,7 +54,6 @@ app.use('/api/restaurantes', restaurantRoutes);
 app.use('/api/memberships', membershipRoutes);
 app.use('/api/chatV1', chatbotRoutes);
 app.use('/api/printers', printerRoutes);
-app.use('/api/orders', orderRoutes);
 
 // 🔗 Conexión base de datos
 connectToDatabase();
